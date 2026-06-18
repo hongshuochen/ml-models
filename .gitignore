@@ -1,0 +1,21 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+
+# Datasets (auto-downloaded by Ultralytics, large)
+datasets/
+
+# Training outputs / runs (checkpoints, plots, large)
+runs/
+
+# Downloaded pretrained weights
+*.pt
+*.onnx
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+*.swp
