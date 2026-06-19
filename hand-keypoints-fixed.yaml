@@ -1,0 +1,14 @@
+# Hand keypoints dataset with a CORRECTED flip_idx.
+# Ultralytics' bundled hand-keypoints.yaml ships a broken flip_idx that scrambles
+# keypoints under horizontal flip, which (with the default fliplr=0.5 augmentation)
+# teaches the model wrong keypoints for mirrored/left hands. A single hand has no
+# internal left/right symmetry, so the correct flip_idx is the identity mapping.
+path: /home/max/2026/ml-models/datasets/hand-keypoints
+train: images/train
+val: images/val
+
+kpt_shape: [21, 3]
+flip_idx: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+names:
+  0: hand

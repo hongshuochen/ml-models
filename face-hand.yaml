@@ -1,0 +1,10 @@
+# 2-class face + hand detection (boxes only, no keypoints).
+# Built by build_face_hand.py: WIDER FACE boxes (class 0) + hand-keypoints
+# boxes (class 1, keypoints stripped). Images are symlinked.
+path: /home/max/2026/ml-models/datasets/face-hand
+train: images/train
+val: images/val
+
+names:
+  0: face
+  1: hand

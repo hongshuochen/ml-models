@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+next-env.d.ts
+
+# debug
+npm-debug.log*
+
+# env
+.env*.local
+
+# Bundled assets are downloaded/copied by scripts/setup-assets.mjs at install
+# time (npm run setup:assets); they are generated, not source.
+/public/vendor/
+/public/models/

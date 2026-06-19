@@ -9,9 +9,14 @@ datasets/
 # Training outputs / runs (checkpoints, plots, large)
 runs/
 
-# Downloaded pretrained weights
+# Downloaded pretrained weights / exported models (regenerable)
 *.pt
 *.onnx
+*.tflite
+
+# Benchmark exports + int8 calibration arrays (regenerable)
+bench/
+*.npy
 
 # Logs
 *.log

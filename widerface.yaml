@@ -1,0 +1,9 @@
+# WIDER FACE -> YOLO detection dataset (single class: face)
+# Built from the HuggingFace mirror CUHK-CSE/wider_face and converted with
+# prepare_widerface.py. Test split is omitted (no public labels).
+path: /home/max/2026/ml-models/datasets/widerface
+train: images/train
+val: images/val
+
+names:
+  0: face
