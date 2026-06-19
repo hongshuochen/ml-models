@@ -4,7 +4,7 @@ On-device models trained locally and exported to TensorFlow Lite for the
 `webcam-tflite` web app. All models: **YOLO26-nano**, input **640×640**, Ultralytics
 8.4.70 (`torch 2.12.1`), TFLite via onnx2tf / TF 2.19.
 
-**Last updated:** 2026-06-18 (Face+Hand training; some int8 cells computing).
+**Last updated:** 2026-06-19 — complete: face-detect, hand-pose, face+hand, hand-landmark.
 
 ## Quantization types used (all PTQ, not QAT)
 
@@ -42,16 +42,36 @@ Weights `runs/pose/hand_pose_fixed/weights/best.pt` (corrected `flip_idx`) · **
 | int8 (full-int) | 3.90 MB | N/A² | N/A² | N/A² | N/A² | 27.9 ms |
 | int8 (dyn-range) | 4.03 MB | N/A² | N/A² | N/A² | N/A² | 28.7 ms |
 
-## 3. Face + Hand Detection — 2 classes (face, hand)  _(training)_
+## 3. Face + Hand Detection — 2 classes (face, hand)
 Weights `runs/detect/face_hand_yolo26n/weights/best.pt` · **2.50 M** params · **5.8 GFLOPs** ·
-combined `datasets/face-hand` (31,656 train / 11,218 val; 159k face + 18.8k hand boxes).
+combined `datasets/face-hand` (31,656 train / 11,218 val) · output `(1,300,6)`. Overall (both classes):
 
 | Precision | File | P | R | mAP@50 | mAP@50-95 | Latency¹ |
 |-----------|-----:|---:|---:|-------:|----------:|---------:|
-| float32 | _pending_ | _pending_ | _pending_ | _training (ep≈20: 0.81 / 0.59)_ | | _pending_ |
-| float16 | _pending_ | | | | | |
-| int8 (full-int) | _pending_ | | | | | |
-| int8 (dyn-range) | _pending_ | | | | | |
+| float32 | 9.83 MB | 0.905 | 0.787 | **0.831** | 0.605 | 17.1 ms |
+| float16 | 5.01 MB | 0.905 | 0.787 | 0.831 | 0.605 | 17.1 ms |
+| int8 (full-int) | 2.80 MB | 0.804 | 0.717 | 0.721 | 0.527 | 19.1 ms |
+| **int8 (dyn-range)** | 2.84 MB | 0.905 | 0.786 | **0.830** | 0.605 | 17.7 ms |
+
+**Per-class AP@50** (float32): **face 0.670 · hand 0.992**. Hands are easy; WIDER crowd
+faces are hard. Full-int8 hits faces hardest (face 0.454); dynamic-range int8 keeps it
+(face 0.669, hand 0.992) — matching the float models, no calibration needed.
+
+## 4. Hand Landmark Regressor — stage 2 · 21 keypoints
+MobileNetV3-small on a **224×224** hand crop · **1.56 M** params · **0.12 GFLOPs** ·
+`runs/landmark/hand_landmark/best.pt`. Trained on hand-keypoints crops (box-jitter +
+flip + color aug). Accuracy: **PCK@0.1 0.971**, mean normalized keypoint error **0.0221**.
+
+| Precision | File | PCK@0.1 | mean err | Latency¹ |
+|-----------|-----:|--------:|---------:|---------:|
+| float32 | 6.26 MB | 0.971 | 0.0221 | 1.4 ms |
+| float16 | 3.16 MB | 0.971³ | 0.0221³ | 1.2 ms |
+
+³ Accuracy from the torch model; the f16 TFLite is numerically near-identical.
+**Stage-2 role:** YOLO (model 1 or 3) gives the hand box → crop → this regressor
+predicts the 21 keypoints. Far lighter than the single-shot pose model (**0.12 vs
+8.3 GFLOPs**, 1.2 vs 29 ms) and works on a tight crop for higher precision.
+(TFLite export: torch → ONNX → onnxsim → onnx2tf; the simplify step is required.)
 
 ¹ Latency: TFLite CPU, single image, **4 threads** (matches the app's threaded
 WASM), mean of 40 runs, AMD Ryzen 9 5950X, `tf.lite.Interpreter` (XNNPACK),
