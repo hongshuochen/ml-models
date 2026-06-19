@@ -7,15 +7,19 @@ nothing ever leaves the browser.
 
 ## Bundled models
 
-Both are YOLO26-nano models trained locally and exported to TFLite with NMS baked
-in (`yolo export format=tflite nms=True imgsz=640`):
+Locally-trained models exported to TFLite. Three selectable modes:
 
-| Model | Type | Input | Output `[1,300,N]` | Overlay |
-| --- | --- | --- | --- | --- |
-| Face Detection (WIDER FACE) | detection | 640×640 f32 | N=6: `x1,y1,x2,y2,conf,cls` | bounding boxes |
-| Hand Keypoints (21 pts) | pose | 640×640 f32 | N=69: box + conf/cls + 21×`(x,y,score)` | box + hand skeleton |
+| Mode | Pipeline | Overlay |
+| --- | --- | --- |
+| **Face + Hand** (default) | YOLO26 face+hand detector → crop each hand → MobileNetV3 landmark regressor | face boxes + 21-pt hand skeletons (two-stage) |
+| Hand Pose | single-shot YOLO26-nano-pose | box + 21-pt skeleton |
+| Faces | YOLO26-nano face detector | bounding boxes |
 
-Coordinates are normalized to `[0,1]`; input is float32 RGB ÷ 255.
+The **Face + Hand** mode is the MediaPipe-style two-stage pipeline: the detector
+gives boxes, and each hand box is cropped and run through the landmark regressor
+for sharper keypoints (the worker does the crop via `tf.image.cropAndResize`).
+YOLO coords are normalized `[0,1]`; detector input is float32 RGB ÷ 255, the
+landmark model takes a 224×224 NCHW crop.
 
 ## Features
 

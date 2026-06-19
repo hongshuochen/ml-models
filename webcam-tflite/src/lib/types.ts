@@ -1,6 +1,6 @@
 // Shared types for the app and the inference Web Worker protocol.
 
-export type ModelType = 'detection' | 'pose';
+export type ModelType = 'detection' | 'pose' | 'twostage';
 
 /** A bundled YOLO TFLite model and everything needed to run/interpret it. */
 export interface ModelDef {
@@ -15,6 +15,9 @@ export interface ModelDef {
   inputHeight: number;
   /** Class names indexed by the model's class id. */
   classNames: string[];
+  /** Two-stage only: landmark regressor run on each detected hand crop. */
+  landmarkUrl?: string;
+  landmarkInput?: number;
   /** Minimum confidence to keep a detection/pose. */
   scoreThreshold: number;
   /** Keypoint score threshold (pose models only). */

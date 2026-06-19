@@ -18,12 +18,15 @@ const browser = await puppeteer.launch({
 const page = await browser.newPage();
 await page.setViewport({ width: 900, height: 820, deviceScaleFactor: 1 });
 await page.goto(ORIGIN, { waitUntil: 'networkidle2' });
-// switch to Hand Pose
-await page.evaluate(() => {
-  const btn = [...document.querySelectorAll('.seg')].find((b) => /pose/i.test(b.textContent));
-  btn?.click();
-});
-await new Promise((r) => setTimeout(r, 5000));
+// select a model by label (env PICK), e.g. "Face+Hand" / "Hand Pose"
+const pick = process.env.PICK || '';
+if (pick) {
+  await page.evaluate((p) => {
+    const btn = [...document.querySelectorAll('.seg')].find((b) => b.textContent.includes(p));
+    btn?.click();
+  }, pick);
+}
+await new Promise((r) => setTimeout(r, 7000));
 await page.screenshot({ path: process.env.OUT || 'pose.png' });
 await browser.close();
 console.log('saved', process.env.OUT || 'pose.png');

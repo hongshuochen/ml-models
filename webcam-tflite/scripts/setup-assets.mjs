@@ -54,14 +54,23 @@ function copyVendor() {
   log(`vendor + wasm copied -> ${VENDOR}`);
 }
 
+const REPO = join(ROOT, '..');
 const MODEL_SOURCES = [
   {
     out: 'face_yolo26n.tflite',
     src: join(RUNS, 'detect/widerface_yolo26n/weights/best_saved_model/best_float32.tflite'),
   },
   {
-    out: 'hand_pose_yolo26n.tflite',
-    src: join(RUNS, 'pose/hand_pose_yolo26n/weights/best_saved_model/best_float32.tflite'),
+    out: 'hand_pose_yolo26n.tflite', // corrected flip_idx model
+    src: join(RUNS, 'pose/hand_pose_fixed/weights/best_saved_model/best_float32.tflite'),
+  },
+  {
+    out: 'face_hand_yolo26n.tflite',
+    src: join(REPO, 'bench/fh/fh_saved_model/fh_float16.tflite'),
+  },
+  {
+    out: 'hand_landmark.tflite', // stage-2 landmark regressor
+    src: join(RUNS, 'landmark/hand_landmark/saved_model/hand_landmark_sim_float16.tflite'),
   },
 ];
 

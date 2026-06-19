@@ -20,6 +20,7 @@ const VENDOR = '/vendor/tflite';
 
 let scriptsLoaded = false;
 let model = null;
+let landmarkModel = null; // two-stage: regressor run on each hand crop
 let modelDef = null;
 
 function loadScriptsOnce() {
@@ -42,8 +43,12 @@ async function handleLoad(def) {
   const isolated = typeof self.crossOriginIsolated !== 'undefined' && self.crossOriginIsolated;
   const numThreads = isolated ? Math.min(self.navigator?.hardwareConcurrency || 4, 4) : 1;
   model = null;
+  landmarkModel = null;
   modelDef = def;
   model = await tflite.loadTFLiteModel(def.modelUrl, { numThreads });
+  if (def.landmarkUrl) {
+    landmarkModel = await tflite.loadTFLiteModel(def.landmarkUrl, { numThreads });
+  }
   postMessage({ type: 'ready', modelId: def.id });
 }
 
@@ -111,6 +116,55 @@ function decodePoses(result) {
   return out;
 }
 
+// Two-stage: detect faces/hands, then regress 21 keypoints on each hand crop.
+function runLandmark(input, box) {
+  const size = modelDef.landmarkInput || 224;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const side = Math.max(box.width, box.height) * 1.3; // padded square crop (matches training)
+  const x1 = cx - side / 2;
+  const y1 = cy - side / 2;
+  // crop from the detector's input tensor and resize; landmark model is NCHW.
+  const crop = tf.tidy(() =>
+    tf.transpose(
+      tf.image.cropAndResize(input, [[y1, x1, y1 + side, x1 + side]], [0], [size, size]),
+      [0, 3, 1, 2],
+    ),
+  );
+  const out = landmarkModel.predict(crop);
+  const kp = out.dataSync(); // 42 values in [0,1] of the crop
+  crop.dispose();
+  tf.dispose(out);
+  const pts = [];
+  for (let k = 0; k < 21; k++) {
+    pts.push({ x: x1 + kp[k * 2] * side, y: y1 + kp[k * 2 + 1] * side, score: 1 });
+  }
+  return pts;
+}
+
+function decodeTwoStage(result, input) {
+  const { data, numDet, stride } = outputData(result);
+  const thr = modelDef.scoreThreshold ?? 0.5;
+  const faces = [];
+  const handBoxes = [];
+  for (let i = 0; i < numDet; i++) {
+    const b = i * stride;
+    const score = data[b + 4];
+    if (score < thr) continue;
+    const box = clampBox(data[b], data[b + 1], data[b + 2], data[b + 3]);
+    if (box.width <= 0 || box.height <= 0) continue;
+    if (Math.round(data[b + 5]) === 0) faces.push({ label: modelDef.classNames[0], score, box });
+    else handBoxes.push({ score, box });
+  }
+  handBoxes.sort((a, b) => b.score - a.score);
+  const poses = [];
+  for (const h of handBoxes.slice(0, 4)) {
+    if (!landmarkModel) break;
+    poses.push({ label: modelDef.classNames[1], score: h.score, box: h.box, keypoints: runLandmark(input, h.box) });
+  }
+  return { detections: faces, poses };
+}
+
 function handleInfer(msg) {
   const { requestId, width, height } = msg;
   const modelId = modelDef ? modelDef.id : '';
@@ -125,8 +179,15 @@ function handleInfer(msg) {
     input = toInputTensor(new Uint8ClampedArray(msg.buffer), width, height);
     result = model.predict(input);
     const payload = { type: 'result', requestId, modelId, modelType: modelDef.type, inferenceMs: 0 };
-    if (modelDef.type === 'pose') payload.poses = decodePoses(result);
-    else payload.detections = decodeDetections(result);
+    if (modelDef.type === 'pose') {
+      payload.poses = decodePoses(result);
+    } else if (modelDef.type === 'twostage') {
+      const ts = decodeTwoStage(result, input);
+      payload.detections = ts.detections;
+      payload.poses = ts.poses;
+    } else {
+      payload.detections = decodeDetections(result);
+    }
     payload.inferenceMs = performance.now() - t0;
     postMessage(payload);
   } catch (err) {

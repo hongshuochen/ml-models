@@ -11,12 +11,37 @@ interface Props {
 }
 
 export function ResultsPanel({ result, stats, inferError, modelName }: Props) {
-  const isPose = result?.modelType === 'pose';
-  const count = (isPose ? result?.poses?.length : result?.detections?.length) ?? 0;
-  const unit = isPose ? (count === 1 ? 'hand' : 'hands') : count === 1 ? 'face' : 'faces';
-  const visibleKpts = isPose
-    ? (result?.poses ?? []).reduce((n, p) => n + p.keypoints.filter((k) => k.score > 0).length, 0)
-    : 0;
+  const type = result?.modelType;
+  const faces = result?.detections?.length ?? 0;
+  const hands = result?.poses?.length ?? 0;
+
+  let body = null;
+  if (result) {
+    if (type === 'twostage') {
+      body = (
+        <div className="count">
+          <span className="count-num">{faces}</span>
+          <span className="count-unit">{faces === 1 ? 'face' : 'faces'}</span>
+          <span className="count-num" style={{ marginLeft: 14 }}>{hands}</span>
+          <span className="count-unit">{hands === 1 ? 'hand' : 'hands'}</span>
+        </div>
+      );
+    } else if (type === 'pose') {
+      body = (
+        <div className="count">
+          <span className="count-num">{hands}</span>
+          <span className="count-unit">{hands === 1 ? 'hand' : 'hands'}</span>
+        </div>
+      );
+    } else {
+      body = (
+        <div className="count">
+          <span className="count-num">{faces}</span>
+          <span className="count-unit">{faces === 1 ? 'face' : 'faces'}</span>
+        </div>
+      );
+    }
+  }
 
   return (
     <div className="results glass hud">
@@ -26,19 +51,12 @@ export function ResultsPanel({ result, stats, inferError, modelName }: Props) {
           {stats.latencyMs} ms · {stats.fps} fps
         </span>
       </div>
-
       {inferError ? (
         <p className="err-text">{inferError}</p>
       ) : !result ? (
         <p className="muted">warming up…</p>
       ) : (
-        <>
-          <div className="count">
-            <span className="count-num">{count}</span>
-            <span className="count-unit">{unit}</span>
-          </div>
-          {isPose && count > 0 && <div className="sub-line">{visibleKpts} keypoints tracked</div>}
-        </>
+        body
       )}
     </div>
   );

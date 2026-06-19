@@ -9,6 +9,21 @@ import type { ModelDef } from './types';
  */
 export const MODELS: ModelDef[] = [
   {
+    id: 'face-hand-2stage',
+    name: 'Face + Hand (2-stage landmarks)',
+    shortName: 'Face+Hand',
+    type: 'twostage',
+    modelUrl: '/models/face_hand_yolo26n.tflite',
+    landmarkUrl: '/models/hand_landmark.tflite',
+    landmarkInput: 224,
+    inputWidth: 640,
+    inputHeight: 640,
+    classNames: ['face', 'hand'],
+    scoreThreshold: 0.5,
+    description:
+      'Detects faces + hands, then crops each hand and regresses its 21 keypoints (MediaPipe-style two-stage).',
+  },
+  {
     id: 'face-detect',
     name: 'Face Detection (YOLO26n · WIDER FACE)',
     shortName: 'Faces',

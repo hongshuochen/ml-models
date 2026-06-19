@@ -26,8 +26,10 @@ export default function Home() {
 
   const cameraError =
     camera.status !== 'ready' && camera.status !== 'requesting' && camera.status !== 'idle';
-  const detections = result?.modelType === 'detection' ? result.detections : undefined;
-  const poses = result?.modelType === 'pose' ? result.poses : undefined;
+  const showDet = result?.modelType === 'detection' || result?.modelType === 'twostage';
+  const showPose = result?.modelType === 'pose' || result?.modelType === 'twostage';
+  const detections = showDet ? result?.detections : undefined;
+  const poses = showPose ? result?.poses : undefined;
 
   return (
     <main className="stage-root">
