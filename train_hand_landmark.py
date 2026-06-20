@@ -82,12 +82,17 @@ class HandCropDataset(Dataset):
         return img, target, mask
 
 
-def build_model():
-    m = torchvision.models.mobilenet_v3_small(
-        weights=torchvision.models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
-    )
-    m.classifier[3] = nn.Linear(m.classifier[3].in_features, NUM_KPTS * 2)
-    return m
+def build_model(backbone="torchvision"):
+    # torchvision MobileNetV3-small (full width) ...
+    if backbone in ("torchvision", "mnv3s"):
+        m = torchvision.models.mobilenet_v3_small(
+            weights=torchvision.models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
+        )
+        m.classifier[3] = nn.Linear(m.classifier[3].in_features, NUM_KPTS * 2)
+        return m
+    # ... or any timm backbone (pretrained), e.g. mobilenetv3_small_050
+    import timm
+    return timm.create_model(backbone, pretrained=True, num_classes=NUM_KPTS * 2, in_chans=3)
 
 
 @torch.no_grad()
@@ -117,6 +122,7 @@ def main():
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--out", default="runs/landmark/hand_landmark")
+    ap.add_argument("--backbone", default="torchvision", help="'torchvision' or a timm model name")
     ap.add_argument("--limit", type=int, default=0, help="cap samples for a smoke test")
     args = ap.parse_args()
 
@@ -134,7 +140,7 @@ def main():
     tl = DataLoader(tr, args.batch, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
     vl = DataLoader(va, args.batch, shuffle=False, num_workers=args.workers, pin_memory=True)
 
-    model = build_model().to(device)
+    model = build_model(args.backbone).to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
