@@ -58,23 +58,35 @@ faces are hard. Full-int8 hits faces hardest (face 0.454); dynamic-range int8 ke
 (face 0.669, hand 0.992) — matching the float models, no calibration needed.
 
 ## 4. Hand Landmark Regressor — stage 2 · 21 keypoints
-MobileNetV3-small on a **224×224** hand crop · **1.56 M** params · **0.12 GFLOPs** ·
-`runs/landmark/hand_landmark/best.pt`. Trained on hand-keypoints crops (box-jitter +
-flip + color aug). Accuracy: **PCK@0.1 0.971**, mean normalized keypoint error **0.0221**.
+A small MobileNet on a **224×224** hand crop regresses 21 (x,y) keypoints. Trained on
+hand-keypoints crops (18.8 k hands; box-jitter + flip + color aug). Backbones compared
+(f16 TFLite; PCK/err³ from the torch model; latency = TFLite CPU, 4-thread):
 
-Two interchangeable backbones (both ImageNet-pretrained, fine-tuned on hand crops):
+| Backbone | Params | MFLOPs | Init | f16 size | PCK@0.1³ | mean err | f16 latency¹ |
+|----------|------:|------:|------|---------:|--------:|---------:|-------------:|
+| MobileNetV3-small (torchvision) | 1.56 M | 120 | ImageNet | 3.16 MB | **0.971** | 0.0221 | 1.2 ms |
+| MobileNetV3-small_050 (timm) | 0.61 M | 46 | ImageNet (60 ep) | 1.27 MB | 0.949 | 0.0314 | 1.1 ms |
+| MobileNetV3-small_050 (timm) | 0.61 M | 46 | scratch (100 ep) | 1.27 MB | 0.959 | 0.0281 | 1.1 ms |
+| **MobileNetV2_035 (timm)** | **0.45 M** | 116 | scratch (100 ep) | **0.92 MB** | 0.951 | 0.0298 | **0.9 ms** |
 
-| Backbone | Params | Precision | File | PCK@0.1 | mean err | Latency¹ |
-|----------|------:|-----------|-----:|--------:|---------:|---------:|
-| MobileNetV3-small (default, torchvision) | 1.56 M | float32 | 6.26 MB | 0.971 | 0.0221 | 1.4 ms |
-| | | float16 | 3.16 MB | 0.971³ | 0.0221³ | 1.2 ms |
-| **MobileNetV3-small_050** (timm) | 0.61 M | float32 | 2.48 MB | 0.949 | 0.0314 | 1.2 ms |
-| | | float16 | **1.27 MB** | 0.949³ | 0.0314³ | 1.1 ms |
+(f32 files ≈ 2× the f16 size.)
 
-`_050` is **2.5× smaller for ~2 pts PCK** (0.971 → 0.949) — the better pick for a
-compact two-stage. (MobileNetV4's smallest is *larger*, 2.55 M, so it's the wrong
-direction for shrinking; see backbone comparison.) Weights:
-`runs/landmark/hand_landmark/` (default) and `runs/landmark/hand_landmark_mnv3s050/`.
+**Findings:**
+- **Pretraining is not needed for this task.** At the *same* 60-epoch budget, scratch
+  MNv3-small_050 (PCK 0.952) matched ImageNet-pretrained (0.949); given 100 epochs it
+  reached 0.959. The hand-crop set is large enough, and keypoint regression is far
+  enough from ImageNet classification, that pretrained features give no final-accuracy
+  edge here — only slightly faster early convergence.
+- **FLOPs don't predict latency at this scale.** MNv2_035 has 2.5× the FLOPs of
+  MNv3-small_050 (116 vs 46) yet runs *faster* (0.9 vs 1.1 ms): its plain
+  depthwise-separable convs are more XNNPACK-friendly than MNv3's SE + hard-swish.
+- **Best compact pick: MNv2_035 from scratch** — smallest (0.45 M / 0.92 MB f16),
+  fastest (0.9 ms), PCK 0.951 (≈ pretrained _050). For max accuracy at 0.61 M, use
+  MNv3-small_050 from scratch (0.959). (MobileNetV4's smallest is *larger*, 2.55 M —
+  wrong direction for shrinking.)
+
+Weights: `runs/landmark/hand_landmark/` (1.56 M), `_mnv3s050/` (pretrained),
+`_mnv3s050_scratch/`, `_mnv2_035_scratch/`.
 
 ³ Accuracy from the torch model; the f16 TFLite is numerically near-identical.
 **Stage-2 role:** YOLO (model 1 or 3) gives the hand box → crop → this regressor

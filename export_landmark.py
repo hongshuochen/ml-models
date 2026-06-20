@@ -35,7 +35,7 @@ def main():
     ap.add_argument("--onnx", default=OUT_ONNX)
     args = ap.parse_args()
 
-    m = build_model(args.backbone)
+    m = build_model(args.backbone, pretrained=False)  # weights come from the checkpoint below
     m.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     w = Wrapped(m).eval()
 

@@ -60,8 +60,16 @@ uv run python train_hand_landmark.py --epochs 60 --batch 64 --device cuda --work
 # 6b. MobileNetV3-small_050 (timm, ImageNet-pretrained) — ~0.6M, smaller
 uv run python train_hand_landmark.py --backbone mobilenetv3_small_050 \
   --epochs 60 --batch 64 --device cuda --workers 8 --out runs/landmark/hand_landmark_mnv3s050
+# 6c. MobileNetV2_035 from scratch (no ImageNet weights) — smallest/fastest
+uv run python train_hand_landmark.py --backbone mobilenetv2_035 --no-pretrained \
+  --epochs 100 --batch 64 --device cuda --workers 8 --out runs/landmark/hand_landmark_mnv2_035_scratch
+# 6d. MobileNetV3-small_050 from scratch (control: pretrain vs scratch) — best PCK at 0.61M
+uv run python train_hand_landmark.py --backbone mobilenetv3_small_050 --no-pretrained \
+  --epochs 100 --batch 64 --device cuda --workers 8 --out runs/landmark/hand_landmark_mnv3s050_scratch
 ```
-→ `runs/landmark/<out>/best.pt` · 6a: 1.56M, PCK@0.1 0.971 · 6b: 0.61M (see MODELS_REPORT)
+→ `runs/landmark/<out>/best.pt` (PCK@0.1, see MODELS_REPORT §4): 6a 1.56M 0.971 ·
+6b 0.61M 0.949 · 6c 0.45M 0.951 (scratch) · 6d 0.61M 0.959 (scratch, best compact).
+**Pretraining is not needed here** — scratch matches/beats pretrained at this data size.
 
 ## Export to TFLite (per model)
 ```bash
