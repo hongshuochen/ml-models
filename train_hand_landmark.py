@@ -82,17 +82,16 @@ class HandCropDataset(Dataset):
         return img, target, mask
 
 
-def build_model(backbone="torchvision"):
+def build_model(backbone="torchvision", pretrained=True):
     # torchvision MobileNetV3-small (full width) ...
     if backbone in ("torchvision", "mnv3s"):
-        m = torchvision.models.mobilenet_v3_small(
-            weights=torchvision.models.MobileNet_V3_Small_Weights.IMAGENET1K_V1
-        )
+        w = torchvision.models.MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
+        m = torchvision.models.mobilenet_v3_small(weights=w)
         m.classifier[3] = nn.Linear(m.classifier[3].in_features, NUM_KPTS * 2)
         return m
-    # ... or any timm backbone (pretrained), e.g. mobilenetv3_small_050
+    # ... or any timm backbone, e.g. mobilenetv3_small_050 / mobilenetv2_035
     import timm
-    return timm.create_model(backbone, pretrained=True, num_classes=NUM_KPTS * 2, in_chans=3)
+    return timm.create_model(backbone, pretrained=pretrained, num_classes=NUM_KPTS * 2, in_chans=3)
 
 
 @torch.no_grad()
@@ -123,6 +122,7 @@ def main():
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--out", default="runs/landmark/hand_landmark")
     ap.add_argument("--backbone", default="torchvision", help="'torchvision' or a timm model name")
+    ap.add_argument("--no-pretrained", action="store_true", help="train from scratch (no ImageNet weights)")
     ap.add_argument("--limit", type=int, default=0, help="cap samples for a smoke test")
     args = ap.parse_args()
 
@@ -140,7 +140,8 @@ def main():
     tl = DataLoader(tr, args.batch, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
     vl = DataLoader(va, args.batch, shuffle=False, num_workers=args.workers, pin_memory=True)
 
-    model = build_model(args.backbone).to(device)
+    model = build_model(args.backbone, pretrained=not args.no_pretrained).to(device)
+    print(f"backbone={args.backbone}  pretrained={not args.no_pretrained}  params={sum(p.numel() for p in model.parameters()):,}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
