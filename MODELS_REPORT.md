@@ -105,6 +105,23 @@ int8 keeps **full float accuracy** (0.779 / face 0.569) and is faster, but is 1.
 decimal (under 1 MiB only). vs the 2.5 M nano face+hand (mAP@50 0.831), the 0.68 M pico
 loses ~5 pts at float — a good capacity/size trade.
 
+## 6. Face + Hand "pico-P4P5" — drop-P3 (medium/large only)
+`yolo26n-pico-p45.yaml`: pico with the **P3 (small-object) head removed** → 2 detection
+scales, **strides [16, 32]** (min detectable ~16 px). **0.64 M params · 1.2 GFLOPs**
+(28% fewer FLOPs than the 3-scale pico) · `runs/detect/face_hand_pico_p45/`. For use
+cases that need medium/large objects and must keep large — small objects are dropped
+by design.
+
+| Precision | Size | mAP@50 | mAP@50-95 | face AP@50 | hand AP@50 | Latency |
+|-----------|-----:|-------:|----------:|-----------:|-----------:|--------:|
+| float16 | 1.31 MB | 0.752 | 0.547 | 0.515 | 0.989 | 5.1 ms |
+| **int8** | **0.818 MB** | 0.676 | 0.498 | 0.366 | **0.986** | 10.4 ms |
+
+**Hands are unaffected by dropping P3** (AP@50 0.989 f16) and int8 hand AP is actually
+*higher* than the 3-scale pico (0.986 vs 0.926 — the 2-scale model quantizes cleaner).
+Faces drop (most WIDER faces are tiny → now undetectable; medium/large faces still caught
+at 0.515 f16). Smallest + fastest sub-1 MB int8 here, and the best hand detector at int8.
+
 ## Key findings
 
 - **float16 = best deployment choice**: identical accuracy to float32 at **half the
