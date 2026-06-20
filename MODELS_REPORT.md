@@ -85,6 +85,26 @@ alike, even with a conf filter. The model still yields correct top detections in
 direct inference, but int8 is **not recommended** for the end-to-end pose head.
 Use float16 for the pose model.
 
+## 5. Face + Hand "pico" — sub-1 MB int8 detector (custom compound scale)
+Stock **YOLO26 architecture**, custom scale **`[0.5, 0.125, 1024]`** (`yolo26n-pico.yaml`;
+backbone/head byte-identical to official yolo26.yaml — only `nc`+`scales` changed) ·
+2 classes · **0.68 M params · 1.68 GFLOPs** · `runs/detect/face_hand_pico/`. Built to
+meet a <1 MB int8 requirement. (max_channels kept at 1024 so the C2PSA attention stays
+valid; width 0.125 is the dominant size lever.)
+
+| Precision | Size | mAP@50 | mAP@50-95 | face AP@50 | hand AP@50 | Latency |
+|-----------|-----:|-------:|----------:|-----------:|-----------:|--------:|
+| float32 | 2.80 MB | 0.780 | 0.585 | ~0.57 | ~0.99 | 6.7 ms |
+| float16 | 1.49 MB | 0.779 | 0.567 | 0.569 | 0.988 | 6.9 ms |
+| **int8 full-integer** | **0.93 MB** (930,219 B) | 0.654 | 0.476 | 0.383 | 0.926 | 11.6 ms |
+| int8 dynamic-range | 1.04 MB (1,037,041 B) | 0.779 | 0.567 | 0.569 | 0.988 | 8.0 ms |
+
+**Only full-integer int8 is under 1 MB decimal (0.93 MB)** — the headline deliverable —
+but full-int8 hurts the hard face class (0.383); hands stay strong (0.926). Dynamic-range
+int8 keeps **full float accuracy** (0.779 / face 0.569) and is faster, but is 1.04 MB
+decimal (under 1 MiB only). vs the 2.5 M nano face+hand (mAP@50 0.831), the 0.68 M pico
+loses ~5 pts at float — a good capacity/size trade.
+
 ## Key findings
 
 - **float16 = best deployment choice**: identical accuracy to float32 at **half the
