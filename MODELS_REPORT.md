@@ -114,13 +114,16 @@ by design.
 
 | Precision | Size | mAP@50 | mAP@50-95 | face AP@50 | hand AP@50 | Latency |
 |-----------|-----:|-------:|----------:|-----------:|-----------:|--------:|
+| float32 | 2.48 MB | 0.752 | 0.547 | 0.516 | 0.989 | 5.4 ms |
 | float16 | 1.31 MB | 0.752 | 0.547 | 0.515 | 0.989 | 5.1 ms |
-| **int8** | **0.818 MB** | 0.676 | 0.498 | 0.366 | **0.986** | 10.4 ms |
+| int8 full-integer | 0.818 MB | 0.676 | 0.498 | 0.366 | 0.986 | 10.4 ms |
+| **int8 dynamic-range** | **0.808 MB** | **0.752** | 0.546 | 0.516 | **0.989** | 5.8 ms |
 
-**Hands are unaffected by dropping P3** (AP@50 0.989 f16) and int8 hand AP is actually
-*higher* than the 3-scale pico (0.986 vs 0.926 — the 2-scale model quantizes cleaner).
-Faces drop (most WIDER faces are tiny → now undetectable; medium/large faces still caught
-at 0.515 f16). Smallest + fastest sub-1 MB int8 here, and the best hand detector at int8.
+**Hands are unaffected by dropping P3** (AP@50 0.989). **int8 dynamic-range is the best
+choice here**: it matches float32 accuracy (0.752 / hand 0.989) at **0.808 MB — strictly
+< 1 MB (both decimal and MiB)** and 5.8 ms, beating full-integer int8 on size, speed, *and*
+accuracy. Faces drop (most WIDER faces are tiny → undetectable; medium/large still caught
+at 0.516). This is the smallest, fastest sub-1 MB face+hand detector with full-accuracy hands.
 
 ## Key findings
 
