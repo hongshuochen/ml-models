@@ -4,7 +4,7 @@ const ORIGIN = process.env.ORIGIN || 'http://localhost:3100';
 const IMG = process.env.IMG || '/_test_hand.jpg';
 const MODEL = {
   id: 'face-hand-2stage', type: 'twostage',
-  modelUrl: '/models/face_hand_yolo26n.tflite',
+  modelUrl: process.env.DET || '/models/face_hand_yolo26n.tflite',
   landmarkUrl: '/models/hand_landmark.tflite',
   landmarkInput: 224, inputWidth: 640, inputHeight: 640,
   classNames: ['face', 'hand'], scoreThreshold: 0.5,
