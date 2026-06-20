@@ -62,10 +62,19 @@ MobileNetV3-small on a **224×224** hand crop · **1.56 M** params · **0.12 GFL
 `runs/landmark/hand_landmark/best.pt`. Trained on hand-keypoints crops (box-jitter +
 flip + color aug). Accuracy: **PCK@0.1 0.971**, mean normalized keypoint error **0.0221**.
 
-| Precision | File | PCK@0.1 | mean err | Latency¹ |
-|-----------|-----:|--------:|---------:|---------:|
-| float32 | 6.26 MB | 0.971 | 0.0221 | 1.4 ms |
-| float16 | 3.16 MB | 0.971³ | 0.0221³ | 1.2 ms |
+Two interchangeable backbones (both ImageNet-pretrained, fine-tuned on hand crops):
+
+| Backbone | Params | Precision | File | PCK@0.1 | mean err | Latency¹ |
+|----------|------:|-----------|-----:|--------:|---------:|---------:|
+| MobileNetV3-small (default, torchvision) | 1.56 M | float32 | 6.26 MB | 0.971 | 0.0221 | 1.4 ms |
+| | | float16 | 3.16 MB | 0.971³ | 0.0221³ | 1.2 ms |
+| **MobileNetV3-small_050** (timm) | 0.61 M | float32 | 2.48 MB | 0.949 | 0.0314 | 1.2 ms |
+| | | float16 | **1.27 MB** | 0.949³ | 0.0314³ | 1.1 ms |
+
+`_050` is **2.5× smaller for ~2 pts PCK** (0.971 → 0.949) — the better pick for a
+compact two-stage. (MobileNetV4's smallest is *larger*, 2.55 M, so it's the wrong
+direction for shrinking; see backbone comparison.) Weights:
+`runs/landmark/hand_landmark/` (default) and `runs/landmark/hand_landmark_mnv3s050/`.
 
 ³ Accuracy from the torch model; the f16 TFLite is numerically near-identical.
 **Stage-2 role:** YOLO (model 1 or 3) gives the hand box → crop → this regressor

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Export the hand landmark regressor to ONNX (normalize + sigmoid baked in) and
 render a sanity-check visualization. Run onnx2tf afterwards for TFLite."""
+import argparse
 import numpy as np
 import torch
 import torch.nn as nn
@@ -28,17 +29,23 @@ class Wrapped(nn.Module):
 
 
 def main():
-    m = build_model()
-    m.load_state_dict(torch.load(CKPT, map_location="cpu"))
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--backbone", default="torchvision")
+    ap.add_argument("--ckpt", default=CKPT)
+    ap.add_argument("--onnx", default=OUT_ONNX)
+    args = ap.parse_args()
+
+    m = build_model(args.backbone)
+    m.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     w = Wrapped(m).eval()
 
     n_params = sum(p.numel() for p in m.parameters())
     print(f"params: {n_params:,}")
 
     dummy = torch.zeros(1, 3, 224, 224)
-    torch.onnx.export(w, dummy, OUT_ONNX, input_names=["images"],
+    torch.onnx.export(w, dummy, args.onnx, input_names=["images"],
                       output_names=["keypoints"], opset_version=13, dynamo=False)
-    print(f"exported ONNX -> {OUT_ONNX}")
+    print(f"exported ONNX -> {args.onnx}")
 
     # sanity viz on a real hand crop (replicate eval cropping)
     import glob
