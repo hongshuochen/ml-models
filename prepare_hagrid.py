@@ -20,6 +20,7 @@ Usage:
 """
 import argparse
 import json
+import random
 from pathlib import Path
 
 import cv2
@@ -56,6 +57,8 @@ def main():
     ap.add_argument("--out", default="datasets/hagrid_det")
     ap.add_argument("--target-split", default="train")
     ap.add_argument("--per-gesture-limit", type=int, default=0, help="cap images per gesture (0=all)")
+    ap.add_argument("--shuffle", action="store_true", help="seeded random sample per gesture (vs first-N)")
+    ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--det-score", type=float, default=0.5)
     ap.add_argument("--min-face-area", type=float, default=0.004,
                     help="drop faces smaller than this fraction of image area (kills tiny photo faces)")
@@ -82,11 +85,14 @@ def main():
         jsons = [j for j in jsons if j.stem in args.gestures]
 
     n_img = n_hand = n_face = n_noface = n_viz = 0
-    for jf in jsons:
+    for gi, jf in enumerate(jsons):
         gesture = jf.stem
         data = json.load(open(jf))
+        items = list(data.items())
+        if args.shuffle:  # seeded, per-gesture -> reproducible random sample
+            random.Random(args.seed + gi).shuffle(items)
         g_count = 0
-        for img_id, e in data.items():
+        for img_id, e in items:
             if args.per_gesture_limit and g_count >= args.per_gesture_limit:
                 break
             img_path = index.get(img_id)
