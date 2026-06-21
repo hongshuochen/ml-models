@@ -1,0 +1,12 @@
+# HaGRID-domain held-out eval (subject-disjoint from train: official val split).
+# For measuring face+hand detection on the HaGRID/webcam distribution. Used with
+# `yolo val data=hagrid-val.yaml`. NOTE: face GT here is InsightFace pseudo-labels
+# (HaGRID has no face GT), so face AP measures agreement with the teacher; hand AP
+# is against HaGRID's real human boxes.
+path: /home/max/2026/ml-models/datasets
+train: hagrid_det_v2/images/train   # unused for `val`
+val: hagrid_det_v2/images/val
+
+names:
+  0: face
+  1: hand
