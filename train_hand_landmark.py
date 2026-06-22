@@ -30,8 +30,9 @@ STD = [0.229, 0.224, 0.225]
 
 
 class HandCropDataset(Dataset):
-    def __init__(self, roots, split, input_size=224, train=True, pad=1.3):
+    def __init__(self, roots, split, input_size=224, train=True, pad=1.3, flip_idx=None):
         self.input_size, self.train, self.pad = input_size, train, pad
+        self.flip_idx = np.arange(NUM_KPTS) if flip_idx is None else np.asarray(flip_idx)
         if isinstance(roots, (str, Path)):
             roots = [roots]
         self.samples = []
@@ -74,9 +75,11 @@ class HandCropDataset(Dataset):
         vis = (kp[:, 2] > 0).astype(np.float32)
 
         if self.train:
-            if random.random() < 0.5:  # horizontal flip: mirror x, indices unchanged
+            if random.random() < 0.5:  # horizontal flip: mirror x + swap L/R keypoints
                 crop = crop.transpose(Image.FLIP_LEFT_RIGHT)
-                kx = 1.0 - kx
+                kx = 1.0 - kx[self.flip_idx]
+                ky = ky[self.flip_idx]
+                vis = vis[self.flip_idx]
             crop = self.jitter(crop)
 
         img = TF.normalize(TF.to_tensor(crop), MEAN, STD)
@@ -134,10 +137,16 @@ def main():
     ap.add_argument("--out", default="runs/landmark/hand_landmark")
     ap.add_argument("--backbone", default="torchvision", help="'torchvision' or a timm model name")
     ap.add_argument("--no-pretrained", action="store_true", help="train from scratch (no ImageNet weights)")
+    ap.add_argument("--num-kpts", type=int, default=21, help="keypoints: 21 for hands, 5 for face")
+    ap.add_argument("--flip-idx", default="", help="hflip swap order, e.g. '1,0,2,4,3' for 5-pt face; default identity")
     ap.add_argument("--eval-only", action="store_true", help="load --ckpt and just evaluate on --data val")
     ap.add_argument("--ckpt", default="", help="checkpoint to evaluate (with --eval-only)")
     ap.add_argument("--limit", type=int, default=0, help="cap samples for a smoke test")
     args = ap.parse_args()
+
+    global NUM_KPTS
+    NUM_KPTS = args.num_kpts
+    flip_idx = [int(x) for x in args.flip_idx.split(",")] if args.flip_idx else list(range(NUM_KPTS))
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     out = Path(args.out)
@@ -152,8 +161,8 @@ def main():
         print(f"EVAL {args.ckpt} on {args.data}/val ({len(va)} hands): val_err={err:.4f} PCK@0.1={pck:.3f}")
         return
 
-    tr = HandCropDataset(args.data, "train", args.input, train=True)
-    va = HandCropDataset(args.data, "val", args.input, train=False)
+    tr = HandCropDataset(args.data, "train", args.input, train=True, flip_idx=flip_idx)
+    va = HandCropDataset(args.data, "val", args.input, train=False, flip_idx=flip_idx)
     if args.limit:
         tr.samples = tr.samples[: args.limit]
         va.samples = va.samples[: args.limit]
