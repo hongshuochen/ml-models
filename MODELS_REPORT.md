@@ -67,26 +67,44 @@ hand-keypoints crops (18.8 k hands; box-jitter + flip + color aug). Backbones co
 | MobileNetV3-small (torchvision) | 1.56 M | 120 | ImageNet | 3.16 MB | **0.971** | 0.0221 | 1.2 ms |
 | MobileNetV3-small_050 (timm) | 0.61 M | 46 | ImageNet (60 ep) | 1.27 MB | 0.949 | 0.0314 | 1.1 ms |
 | MobileNetV3-small_050 (timm) | 0.61 M | 46 | scratch (100 ep) | 1.27 MB | 0.959 | 0.0281 | 1.1 ms |
-| **MobileNetV2_035 (timm)** | **0.45 M** | 116 | scratch (100 ep) | **0.92 MB** | 0.951 | 0.0298 | **0.9 ms** |
+| **MobileNetV2_035 (timm)** | **0.45 M** | 116 | scratch (100 ep) | 0.92 MB | 0.951 | 0.0298 | 0.9 ms |
+| MobileNetV3-small_035 (custom) | 0.38 M | — | scratch (100 ep) | ~0.8 MB | 0.942 | 0.0329 | — |
+| **MobileNetV3-small_025 (custom)** | **0.29 M** | — | scratch (100 ep) | **0.63 MB** | 0.942 | 0.0335 | — |
 
-(f32 files ≈ 2× the f16 size.)
+(f32 files ≈ 2× the f16 size. _035/_025 widths aren't registered in timm — built via
+`_gen_mobilenet_v3`; only possible because we train from scratch.)
 
 **Findings:**
-- **Pretraining is not needed for this task.** At the *same* 60-epoch budget, scratch
-  MNv3-small_050 (PCK 0.952) matched ImageNet-pretrained (0.949); given 100 epochs it
-  reached 0.959. The hand-crop set is large enough, and keypoint regression is far
-  enough from ImageNet classification, that pretrained features give no final-accuracy
-  edge here — only slightly faster early convergence.
+- **Pretraining is not needed for this task.** Scratch MNv3-small_050 (PCK 0.959 @100 ep)
+  matched/beat ImageNet-pretrained (0.949 @60 ep). Keypoint regression is far enough from
+  ImageNet classification, and the data large enough, that pretrained features add no
+  final-accuracy edge — which also frees us to use *any* width (incl. unregistered
+  _035/_025), not just widths that ship pretrained checkpoints.
 - **FLOPs don't predict latency at this scale.** MNv2_035 has 2.5× the FLOPs of
-  MNv3-small_050 (116 vs 46) yet runs *faster* (0.9 vs 1.1 ms): its plain
-  depthwise-separable convs are more XNNPACK-friendly than MNv3's SE + hard-swish.
-- **Best compact pick: MNv2_035 from scratch** — smallest (0.45 M / 0.92 MB f16),
-  fastest (0.9 ms), PCK 0.951 (≈ pretrained _050). For max accuracy at 0.61 M, use
-  MNv3-small_050 from scratch (0.959). (MobileNetV4's smallest is *larger*, 2.55 M —
-  wrong direction for shrinking.)
+  MNv3-small_050 yet runs *faster* (0.9 vs 1.1 ms) — plain depthwise convs beat MNv3's
+  SE + hard-swish on XNNPACK.
+- **Width vs accuracy:** 0.61 M → 0.29 M costs only ~1.7 pts (0.959 → 0.942), and
+  0.38 M ≈ 0.29 M (both 0.942) → **MNv3-small_025 (0.29 M) is the efficient floor.**
 
-Weights: `runs/landmark/hand_landmark/` (1.56 M), `_mnv3s050/` (pretrained),
-`_mnv3s050_scratch/`, `_mnv2_035_scratch/`.
+Weights: `runs/landmark/hand_landmark*/` (1.56 M / _mnv3s050* / _mnv2_035_scratch /
+_mnv3s035_scratch / _mnv3s025_scratch).
+
+### 4b. HaGRID landmark — fixing webcam-domain keypoints
+The hand-keypoints-only regressors do poorly on webcam-framed hands — on a held-out
+HaGRID landmark val: MNv3-small_050 PCK@0.1 **0.460**, _025 **0.395**. Retrain on
+`hand-keypoints + HaGRIDv2` combined (HaGRID's MediaPipe 21-pt labels via
+`prepare_hagrid_landmark.py`; 84.6 k train hands; 40 ep from scratch). RESEARCH ONLY.
+
+| Backbone (data) | Params | hand-keypoints PCK | **webcam PCK** | f16 / int8 |
+|-----------------|------:|-------------------:|---------------:|-----------:|
+| MNv3-small_050 (hk only) | 0.61 M | 0.959 | 0.460 | 1.27 MB |
+| **MNv3-small_050 (+HaGRID)** | 0.61 M | 0.945 | **0.927** | 1.27 MB |
+| MNv3-small_025 (hk only) | 0.29 M | 0.942 | 0.395 | 0.63 MB |
+| **MNv3-small_025 (+HaGRID)** | 0.29 M | 0.921 | **0.899** | 0.63 / **0.41 MB** |
+
+**Webcam landmark PCK 0.40–0.46 → ~0.90–0.93**, small cost to the original val. Caveat:
+webcam PCK is vs MediaPipe pseudo-labels (agreement, not true GT); hand-keypoints val is
+true GT. **Compact deploy:** MNv3-small_025 +HaGRID, **int8 0.41 MB**.
 
 ³ Accuracy from the torch model; the f16 TFLite is numerically near-identical.
 **Stage-2 role:** YOLO (model 1 or 3) gives the hand box → crop → this regressor
