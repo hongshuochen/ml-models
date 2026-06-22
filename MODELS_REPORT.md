@@ -146,6 +146,42 @@ choice here**: it matches float32 accuracy (0.752 / hand 0.989) at **0.808 MB �
 accuracy. Faces drop (most WIDER faces are tiny → undetectable; medium/large still caught
 at 0.516). This is the smallest, fastest sub-1 MB face+hand detector with full-accuracy hands.
 
+## 7. HaGRID augmentation — fixing the webcam-domain hand blind spot
+
+**Problem found.** The detectors learned hands from the Ultralytics hand-keypoints set
+(close-up, hand-centric shots), so on normal webcam framing (person 0.5–4 m away) they
+**almost completely miss hands**. Measured on a held-out HaGRIDv2 val: baseline nano
+hand AP@50 **0.012**, pico-P4P5 **0.031**. Faces transferred fine (~0.98); hands were a
+near-total blind spot.
+
+**Fix.** Fine-tune on **HaGRIDv2** (official 512px, 34 gestures, ~1.08 M imgs): HaGRID's
+own human hand boxes (class 1) + face boxes pseudo-labeled by **InsightFace SCRFD-10G**
+(`buffalo_l`, det_score ≥ 0.5, min-face-area filter to drop tiny photo/poster faces).
+Subject-disjoint official splits → 67,464 train imgs added to the original 31,656;
+**held-out webcam eval** = 10,100 imgs. Warm-start fine-tune (lr0 0.005, patience 12;
+`prepare_hagrid.py` + `face-hand-hagrid-v2.yaml` + `hagrid-val.yaml`).
+**RESEARCH USE ONLY** — InsightFace pretrained models are non-commercial (use YuNet/MIT
+or MediaPipe/Apache-2.0 as teacher for commercial).
+
+| Model (checkpoint) | original val — mAP50 / face / hand | webcam val — mAP50 / face / **hand** |
+|--------------------|-----------------------------------:|-------------------------------------:|
+| nano baseline | 0.831 / 0.670 / 0.992 | 0.498 / 0.984 / **0.012** |
+| **nano + HaGRID** (`best.pt`, ep1) | 0.814 / 0.638 / 0.989 | 0.991 / 0.994 / **0.988** |
+| pico-P4P5 baseline | 0.753 / 0.516 / 0.991 | 0.508 / 0.986 / **0.031** |
+| **pico-P4P5 + HaGRID** (`last.pt`, ep13) | 0.709 / 0.438 / 0.980 | 0.991 / 0.994 / **0.989** |
+
+**Result: webcam hand detection 0.01–0.03 → ~0.99** on both models, at a small cost to
+the WIDER tiny-face task (HaGRID's large/close faces pull the model off WIDER's tiny
+crowd faces). The bigger nano absorbs both (balanced already at ep1 → `best.pt`); the
+smaller pico needs more adaptation (`last.pt`, ep13) and pays a bit more on the old task.
+
+**Deploy (pico-P4P5 + HaGRID, `last.pt`):** TFLite float16 1.31 MB · **int8 dyn-range
+0.807 MB** (same size as the pre-HaGRID pico, now with working webcam hands) · float32
+2.48 MB. `runs/detect/face_hand_pico_p45_hagrid_ft/`.
+
+**Caveat:** webcam-val *face* AP is vs InsightFace pseudo-labels (HaGRID has no face GT),
+so it measures teacher-agreement; webcam *hand* AP is against HaGRID's real human boxes.
+
 ## Key findings
 
 - **float16 = best deployment choice**: identical accuracy to float32 at **half the

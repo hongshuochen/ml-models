@@ -89,3 +89,32 @@ uv run python export_landmark.py
 uv run yolo val model=<model.tflite> data=<data.yaml> imgsz=640 device=cpu batch=1   # mAP
 uv run python bench_latency.py <model.tflite> 4 40                                    # latency (4-thread CPU)
 ```
+
+## 7. HaGRID augmentation — fix webcam-domain hands (RESEARCH ONLY)
+Baselines miss webcam-framed hands (hand AP@50 ~0.01-0.03 on a HaGRID val) because they
+learned hands from close-up hand-keypoints crops. Fine-tune on HaGRIDv2 to fix it.
+InsightFace pretrained models are non-commercial → research use only.
+```bash
+# Data (official HaGRIDv2, sbercloud): annotations (719MB) + 512px images (119GB monolith)
+#   datasets/hagrid_raw/annotations/{train,val,test}/<gesture>.json  (UUID-keyed hand bboxes)
+#   datasets/hagrid_raw/HaGRIDv2_dataset_512/<gesture>/<uuid>.jpg     (34 gestures, ~1.08M imgs)
+# Pseudo-label: HaGRID hand boxes (class 1) + InsightFace SCRFD-10g faces (class 0).
+uv add insightface                                  # + onnxruntime (CPU ok)
+ROOT=datasets/hagrid_raw/HaGRIDv2_dataset_512; ANN=datasets/hagrid_raw/annotations
+uv run python prepare_hagrid.py --ann-dir $ANN/train --img-root $ROOT \
+  --per-gesture-limit 2000 --shuffle --seed 0 --target-split train --out datasets/hagrid_det_v2
+uv run python prepare_hagrid.py --ann-dir $ANN/val --img-root $ROOT \
+  --per-gesture-limit 300  --shuffle --seed 0 --target-split val   --out datasets/hagrid_det_v2
+# Fine-tune (warm start from baselines) on face-hand-hagrid-v2.yaml (val = original face-hand val)
+uv run yolo detect train model=runs/detect/face_hand_yolo26n/weights/best.pt \
+  data=face-hand-hagrid-v2.yaml epochs=40 imgsz=640 batch=16 device=0 lr0=0.005 patience=12 \
+  name=face_hand_hagrid_v2_ft            # nano  -> keep best.pt (balanced; webcam fixed by ep1)
+uv run yolo detect train model=runs/detect/face_hand_pico_p45/weights/best.pt \
+  data=face-hand-hagrid-v2.yaml epochs=40 imgsz=640 batch=16 device=0 lr0=0.005 patience=12 \
+  name=face_hand_pico_p45_hagrid_ft      # pico  -> keep last.pt (needs more epochs than best.pt=ep1)
+# Eval BOTH scorecards (subject-disjoint webcam val is clean):
+uv run yolo val model=<ckpt> data=face-hand.yaml imgsz=640 device=0   # original task
+uv run yolo val model=<ckpt> data=hagrid-val.yaml imgsz=640 device=0  # webcam domain
+```
+→ webcam hand AP@50 0.01-0.03 → ~0.99 (see MODELS_REPORT §7). Deploy pico `last.pt`
+int8 dyn-range 0.807 MB.
