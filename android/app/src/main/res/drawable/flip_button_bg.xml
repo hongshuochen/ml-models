@@ -1,0 +1,5 @@
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <!-- translucent dark circle so the white icon stays visible over the camera -->
+    <solid android:color="#99000000" />
+</shape>
