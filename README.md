@@ -83,12 +83,6 @@ bundled MediaPipe annotations**. Original-task accuracy drops only slightly (the
 HaGRID faces pull off WIDER's tiny crowd faces). Scripts: `prepare_hagrid.py` (detector
 data), `prepare_hagrid_landmark.py` (landmark data).
 
-> ⚠️ **License / research-only:** the HaGRID-augmented models use **InsightFace**
-> pretrained models, which are **non-commercial research only**, and **HaGRID** is
-> CC-BY-SA-4.0. For a commercial product, swap the face-labeling teacher for **YuNet**
-> (MIT) or **MediaPipe BlazeFace** (Apache-2.0). The non-HaGRID models above carry no
-> such restriction.
-
 ---
 
 ## Datasets (auto/scripted, git-ignored)
