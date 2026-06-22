@@ -49,17 +49,11 @@ export function useInference(
     intervalRef.current = intervalMs;
   }, [model, intervalMs]);
 
-  // Create the worker once.
-  useEffect(() => {
-    if (typeof Worker === 'undefined') {
-      setModelStatus('unsupported');
-      setModelError('Web Workers are not supported in this browser.');
-      return;
-    }
+  // Spawn a worker with its handlers wired. We use a FRESH worker for every model
+  // load: tfjs-tflite's WASM runtime hangs when a second model is loaded into an
+  // already-used worker, so reusing it across switches wedges on "warming up".
+  const spawnWorker = useCallback(() => {
     const worker = new Worker('/workers/inference.worker.js');
-    workerRef.current = worker;
-    canvasRef.current = document.createElement('canvas');
-
     worker.onmessage = (e: MessageEvent<WorkerToMain>) => {
       const msg = e.data;
       const currentId = modelRef.current?.id;
@@ -100,23 +94,38 @@ export function useInference(
       setModelStatus('error');
       setModelError(e.message || 'Worker crashed.');
     };
+    return worker;
+  }, []);
 
+  // Create the offscreen canvas once; tear down the worker on unmount.
+  useEffect(() => {
+    if (typeof Worker === 'undefined') {
+      setModelStatus('unsupported');
+      setModelError('Web Workers are not supported in this browser.');
+      return;
+    }
+    canvasRef.current = document.createElement('canvas');
     return () => {
-      worker.terminate();
+      workerRef.current?.terminate();
       workerRef.current = null;
     };
   }, []);
 
-  const loadModel = useCallback((m: ModelDef) => {
-    const worker = workerRef.current;
-    if (!worker) return;
-    busyRef.current = false;
-    setResult(null);
-    setInferError('');
-    setModelError('');
-    setModelStatus('loading');
-    worker.postMessage({ type: 'load', model: m });
-  }, []);
+  const loadModel = useCallback(
+    (m: ModelDef) => {
+      if (typeof Worker === 'undefined') return;
+      workerRef.current?.terminate(); // discard the previous worker (frees its WASM runtime)
+      const worker = spawnWorker();
+      workerRef.current = worker;
+      busyRef.current = false;
+      setResult(null);
+      setInferError('');
+      setModelError('');
+      setModelStatus('loading');
+      worker.postMessage({ type: 'load', model: m });
+    },
+    [spawnWorker],
+  );
 
   // (Re)load whenever the selection changes.
   useEffect(() => {
