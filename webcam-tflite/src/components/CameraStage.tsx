@@ -9,7 +9,10 @@ interface Props {
   poses?: Pose[];
 }
 
-const BOX_COLORS = ['#22d3ee', '#a3e635', '#f472b6', '#fbbf24', '#60a5fa', '#f87171'];
+// Per-class colors so face and hand boxes are styled the same way but tell apart.
+const FACE_COLOR = '#22d3ee'; // cyan
+const HAND_COLOR = '#a3e635'; // lime
+const colorForLabel = (label: string) => (label === 'hand' ? HAND_COLOR : FACE_COLOR);
 
 // 21-point hand topology (MediaPipe / Ultralytics hand-keypoints order).
 const HAND_EDGES: [number, number][] = [
@@ -56,34 +59,37 @@ export function CameraStage({ videoRef, detections, poses }: Props) {
     const px = (nx: number) => ox + nx * dw;
     const py = (ny: number) => oy + ny * dh;
 
-    if (detections?.length) {
+    ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    // Shared box+label painter so faces and hands look identical in style.
+    const drawBox = (
+      b: { x: number; y: number; width: number; height: number },
+      label: string,
+      score: number,
+      color: string,
+    ) => {
+      const x = px(b.x);
+      const y = py(b.y);
       ctx.lineWidth = 2.5;
-      ctx.font = '600 13px ui-sans-serif, system-ui, sans-serif';
-      ctx.textBaseline = 'top';
-      detections.forEach((d, i) => {
-        const color = BOX_COLORS[i % BOX_COLORS.length];
-        const x = px(d.box.x);
-        const y = py(d.box.y);
-        const bw = d.box.width * dw;
-        const bh = d.box.height * dh;
-        ctx.strokeStyle = color;
-        ctx.strokeRect(x, y, bw, bh);
-        const text = `${d.label} ${(d.score * 100).toFixed(0)}%`;
-        const tw = ctx.measureText(text).width;
-        const ty = y > 18 ? y - 18 : y;
-        ctx.fillStyle = color;
-        ctx.fillRect(x, ty, tw + 8, 18);
-        ctx.fillStyle = '#0b0f17';
-        ctx.fillText(text, x + 4, ty + 2);
-      });
+      ctx.strokeStyle = color;
+      ctx.strokeRect(x, y, b.width * dw, b.height * dh);
+      const text = `${label} ${(score * 100).toFixed(0)}%`;
+      const tw = ctx.measureText(text).width;
+      const ty = y > 18 ? y - 18 : y;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, ty, tw + 8, 18);
+      ctx.fillStyle = '#0b0f17';
+      ctx.fillText(text, x + 4, ty + 2);
+    };
+
+    if (detections?.length) {
+      detections.forEach((d) => drawBox(d.box, d.label, d.score, colorForLabel(d.label)));
     }
 
     if (poses?.length) {
       poses.forEach((p) => {
-        ctx.strokeStyle = 'rgba(34,211,238,0.5)';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(px(p.box.x), py(p.box.y), p.box.width * dw, p.box.height * dh);
-        ctx.strokeStyle = '#22d3ee';
+        drawBox(p.box, p.label, p.score, HAND_COLOR); // same style as face boxes
+        ctx.strokeStyle = HAND_COLOR;
         ctx.lineWidth = 3;
         for (const [a, b] of HAND_EDGES) {
           const ka = p.keypoints[a];
