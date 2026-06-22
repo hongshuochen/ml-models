@@ -8,7 +8,8 @@ phone camera, in real time, fully on-device. (Detector only — no landmark stag
   `[1,300,6]` = `[x1,y1,x2,y2,conf,cls]` (cls 0=face, 1=hand).
 - **Camera:** CameraX `ImageAnalysis` (`KEEP_ONLY_LATEST`, RGBA_8888) on a background
   thread; `PreviewView` (cover-fit) with an `OverlayView` drawing the boxes
-  (face = cyan, hand = red). Front camera by default (overlay mirrored to match).
+  (face = cyan, hand = red). Front camera by default, with a **Flip camera** button to
+  switch front/back (the overlay mirror follows automatically).
 
 ## Build & run
 1. Open the **`android/`** folder in **Android Studio** (let it sync Gradle / generate

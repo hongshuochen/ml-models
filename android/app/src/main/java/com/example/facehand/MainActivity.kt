@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.os.Bundle
 import android.util.Log
+import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -32,8 +33,9 @@ class MainActivity : AppCompatActivity() {
     // Single background thread for inference so the camera/UI thread is never blocked.
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
-    // Front camera (selfie) is the natural fit for a face+hand demo; preview is mirrored.
-    private val lensFacing = CameraSelector.LENS_FACING_FRONT
+    // Selected lens — toggled by the Flip button. Front (selfie) by default; preview mirrored.
+    private var lensFacing = CameraSelector.LENS_FACING_FRONT
+    private var cameraProvider: ProcessCameraProvider? = null
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -50,6 +52,7 @@ class MainActivity : AppCompatActivity() {
         previewView = findViewById(R.id.previewView)
         overlay = findViewById(R.id.overlay)
         detector = FaceHandDetector(this)
+        findViewById<Button>(R.id.flipButton).setOnClickListener { flipCamera() }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -63,28 +66,44 @@ class MainActivity : AppCompatActivity() {
     private fun startCamera() {
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
-            val provider = providerFuture.get()
-
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-            val analysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .build()
-                .also { it.setAnalyzer(analysisExecutor, ::analyze) }
-
-            val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
-
-            try {
-                provider.unbindAll()
-                provider.bindToLifecycle(this, selector, preview, analysis)
-            } catch (e: Exception) {
-                Log.e(TAG, "Camera bind failed", e)
-                Toast.makeText(this, "Failed to start camera.", Toast.LENGTH_LONG).show()
-            }
+            cameraProvider = providerFuture.get()
+            bindCamera()
         }, ContextCompat.getMainExecutor(this))
+    }
+
+    /** (Re)bind preview + analysis to the currently selected lens — on start and on flip. */
+    private fun bindCamera() {
+        val provider = cameraProvider ?: return
+        val selector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
+        if (!provider.hasCamera(selector)) {
+            Toast.makeText(this, "That camera isn't available on this device.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val preview = Preview.Builder().build().also {
+            it.setSurfaceProvider(previewView.surfaceProvider)
+        }
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .build()
+            .also { it.setAnalyzer(analysisExecutor, ::analyze) }
+        try {
+            provider.unbindAll()
+            provider.bindToLifecycle(this, selector, preview, analysis)
+        } catch (e: Exception) {
+            Log.e(TAG, "Camera bind failed", e)
+            Toast.makeText(this, "Failed to start camera.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Toggle front <-> back and rebind. The overlay mirror follows lensFacing automatically. */
+    private fun flipCamera() {
+        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+            CameraSelector.LENS_FACING_BACK
+        } else {
+            CameraSelector.LENS_FACING_FRONT
+        }
+        bindCamera()
     }
 
     /** Runs on the analysis thread for every (latest) frame. */

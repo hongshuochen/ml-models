@@ -17,4 +17,16 @@
         android:id="@+id/overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <!-- Switch between front and back cameras. -->
+    <Button
+        android:id="@+id/flipButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="36dp"
+        android:paddingHorizontal="24dp"
+        android:text="@string/flip_camera"
+        android:textColor="#0b0f17"
+        android:backgroundTint="#22d3ee" />
 </FrameLayout>
