@@ -11,7 +11,7 @@ interface Props {
 
 // Per-class colors so face and hand boxes are styled the same way but tell apart.
 const FACE_COLOR = '#22d3ee'; // cyan
-const HAND_COLOR = '#a3e635'; // lime
+const HAND_COLOR = '#ef4444'; // red
 const colorForLabel = (label: string) => (label === 'hand' ? HAND_COLOR : FACE_COLOR);
 
 // 21-point hand topology (MediaPipe / Ultralytics hand-keypoints order).
