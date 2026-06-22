@@ -30,22 +30,25 @@ STD = [0.229, 0.224, 0.225]
 
 
 class HandCropDataset(Dataset):
-    def __init__(self, root, split, input_size=224, train=True, pad=1.3):
+    def __init__(self, roots, split, input_size=224, train=True, pad=1.3):
         self.input_size, self.train, self.pad = input_size, train, pad
-        img_dir = Path(root) / "images" / split
-        lbl_dir = Path(root) / "labels" / split
+        if isinstance(roots, (str, Path)):
+            roots = [roots]
         self.samples = []
-        for lbl in sorted(lbl_dir.glob("*.txt")):
-            img = img_dir / f"{lbl.stem}.jpg"
-            if not img.exists():
-                continue
-            for line in lbl.read_text().splitlines():
-                p = line.split()
-                if len(p) < 5 + NUM_KPTS * 3:
+        for root in roots:
+            img_dir = Path(root) / "images" / split
+            lbl_dir = Path(root) / "labels" / split
+            for lbl in sorted(lbl_dir.glob("*.txt")):
+                img = img_dir / f"{lbl.stem}.jpg"
+                if not img.exists():
                     continue
-                box = [float(v) for v in p[1:5]]  # cx,cy,w,h (image-normalized)
-                kp = np.array([float(v) for v in p[5 : 5 + NUM_KPTS * 3]], np.float32).reshape(NUM_KPTS, 3)
-                self.samples.append((str(img), box, kp))
+                for line in lbl.read_text().splitlines():
+                    p = line.split()
+                    if len(p) < 5 + NUM_KPTS * 3:
+                        continue
+                    box = [float(v) for v in p[1:5]]  # cx,cy,w,h (image-normalized)
+                    kp = np.array([float(v) for v in p[5 : 5 + NUM_KPTS * 3]], np.float32).reshape(NUM_KPTS, 3)
+                    self.samples.append((str(img), box, kp))
         self.jitter = T.ColorJitter(0.3, 0.3, 0.3, 0.05)
 
     def __len__(self):
@@ -89,8 +92,15 @@ def build_model(backbone="torchvision", pretrained=True):
         m = torchvision.models.mobilenet_v3_small(weights=w)
         m.classifier[3] = nn.Linear(m.classifier[3].in_features, NUM_KPTS * 2)
         return m
-    # ... or any timm backbone, e.g. mobilenetv3_small_050 / mobilenetv2_035
+    import re
     import timm
+    # custom-width MobileNetV3-small not registered in timm (e.g. _035, _025) -> build it
+    mm = re.fullmatch(r"mobilenetv3_small_(\d{3})", backbone)
+    if mm and not timm.is_model(backbone):
+        from timm.models.mobilenetv3 import _gen_mobilenet_v3
+        return _gen_mobilenet_v3("mobilenetv3_small_100", int(mm.group(1)) / 100.0,
+                                 pretrained=False, num_classes=NUM_KPTS * 2, in_chans=3)
+    # ... or any registered timm backbone, e.g. mobilenetv3_small_050 / mobilenetv2_035
     return timm.create_model(backbone, pretrained=pretrained, num_classes=NUM_KPTS * 2, in_chans=3)
 
 
@@ -113,7 +123,8 @@ def evaluate(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="datasets/hand-keypoints")
+    ap.add_argument("--data", nargs="+", default=["datasets/hand-keypoints"],
+                    help="one or more dataset roots (combined), each with images|labels/{train,val}")
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -123,12 +134,23 @@ def main():
     ap.add_argument("--out", default="runs/landmark/hand_landmark")
     ap.add_argument("--backbone", default="torchvision", help="'torchvision' or a timm model name")
     ap.add_argument("--no-pretrained", action="store_true", help="train from scratch (no ImageNet weights)")
+    ap.add_argument("--eval-only", action="store_true", help="load --ckpt and just evaluate on --data val")
+    ap.add_argument("--ckpt", default="", help="checkpoint to evaluate (with --eval-only)")
     ap.add_argument("--limit", type=int, default=0, help="cap samples for a smoke test")
     args = ap.parse_args()
 
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+
+    if args.eval_only:
+        va = HandCropDataset(args.data, "val", args.input, train=False)
+        vl = DataLoader(va, args.batch, shuffle=False, num_workers=args.workers, pin_memory=True)
+        model = build_model(args.backbone, pretrained=False).to(device)
+        model.load_state_dict(torch.load(args.ckpt, map_location=device))
+        err, pck = evaluate(model, vl, device)
+        print(f"EVAL {args.ckpt} on {args.data}/val ({len(va)} hands): val_err={err:.4f} PCK@0.1={pck:.3f}")
+        return
 
     tr = HandCropDataset(args.data, "train", args.input, train=True)
     va = HandCropDataset(args.data, "val", args.input, train=False)
