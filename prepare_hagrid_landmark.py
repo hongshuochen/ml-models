@@ -4,10 +4,8 @@
 Converts HaGRID's bundled MediaPipe hand_landmarks (21 [x,y], image-normalized) +
 hand bboxes into YOLO-pose labels (class cx cy w h + 21*(x,y,v)), the same format
 train_hand_landmark.py's HandCropDataset reads. Images symlinked. Uses the official
-subject-disjoint splits (train/val).
-
-RESEARCH USE ONLY: HaGRID landmarks are MediaPipe pseudo-labels, so a regressor
-trained on them is bounded by MediaPipe quality (but gains webcam-domain diversity).
+subject-disjoint splits (train/val). HaGRID landmarks are MediaPipe pseudo-labels,
+so the regressor is bounded by MediaPipe quality (but gains webcam-domain diversity).
 
   uv run python prepare_hagrid_landmark.py --ann-dir datasets/hagrid_raw/annotations/train \
       --img-root datasets/hagrid_raw/HaGRIDv2_dataset_512 --per-gesture-limit 1500 --shuffle

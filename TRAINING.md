@@ -90,10 +90,9 @@ uv run yolo val model=<model.tflite> data=<data.yaml> imgsz=640 device=cpu batch
 uv run python bench_latency.py <model.tflite> 4 40                                    # latency (4-thread CPU)
 ```
 
-## 7. HaGRID augmentation — fix webcam-domain hands (RESEARCH ONLY)
+## 7. HaGRID augmentation — fix webcam-domain hands
 Baselines miss webcam-framed hands (hand AP@50 ~0.01-0.03 on a HaGRID val) because they
 learned hands from close-up hand-keypoints crops. Fine-tune on HaGRIDv2 to fix it.
-InsightFace pretrained models are non-commercial → research use only.
 ```bash
 # Data (official HaGRIDv2, sbercloud): annotations (719MB) + 512px images (119GB monolith)
 #   datasets/hagrid_raw/annotations/{train,val,test}/<gesture>.json  (UUID-keyed hand bboxes)

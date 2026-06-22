@@ -5,10 +5,6 @@
   - FACE boxes (class 0): pseudo-labeled with InsightFace SCRFD-10G (buffalo_l),
     kept when det_score >= --det-score and area >= --min-face-area.
 
-RESEARCH USE ONLY: InsightFace pretrained models are non-commercial; a model
-trained on these labels inherits that restriction. For commercial use swap the
-teacher for YuNet (MIT) or MediaPipe BlazeFace (Apache-2.0).
-
 Works with either layout (annotations are per-gesture <gesture>.json keyed by
 image UUID; images located by a global UUID->path index under --img-root):
   official:  --ann-dir datasets/hagrid_raw/annotations/train  --img-root datasets/hagrid_raw/images

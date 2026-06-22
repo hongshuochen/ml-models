@@ -1,6 +1,6 @@
 # 2-class face+hand detection, augmented with HaGRIDv2 (official 512px, 34 gestures).
 # HaGRID hand boxes (class 1) from official annotations (train split, subject-disjoint)
-# + face boxes (class 0) pseudo-labeled by InsightFace SCRFD-10G. RESEARCH USE ONLY.
+# + face boxes (class 0) pseudo-labeled by InsightFace SCRFD-10G.
 # val kept IDENTICAL to face-hand.yaml's val -> fair before/after on the original task.
 # (HaGRID-domain performance is measured separately via hagrid-val.yaml.)
 path: /home/max/2026/ml-models/datasets

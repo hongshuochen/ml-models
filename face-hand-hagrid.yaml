@@ -1,7 +1,6 @@
 # 2-class face + hand detection, augmented with HaGRID.
 # HaGRID hand boxes (class 1) from its own annotations + face boxes (class 0)
-# pseudo-labeled by InsightFace SCRFD-10G (prepare_hagrid.py). RESEARCH USE ONLY
-# (InsightFace pretrained models are non-commercial).
+# pseudo-labeled by InsightFace SCRFD-10G (prepare_hagrid.py).
 # val is IDENTICAL to face-hand.yaml's val -> fair before/after comparison.
 path: /home/max/2026/ml-models/datasets
 train:

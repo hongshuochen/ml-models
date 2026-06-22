@@ -72,7 +72,7 @@ const MODEL_SOURCES = [
     out: 'hand_landmark.tflite', // stage-2 landmark regressor
     src: join(RUNS, 'landmark/hand_landmark/saved_model/hand_landmark_sim_float16.tflite'),
   },
-  // Compact HaGRID two-stage (float16, ~1.9 MB total; webcam-domain). RESEARCH ONLY.
+  // Compact HaGRID two-stage (float16, ~1.9 MB total; webcam-domain).
   // (int8 dyn-range is smaller but the tfjs-tflite WASM runtime can't load hybrid ops.)
   {
     out: 'face_hand_pico_p45_hagrid_f16.tflite',

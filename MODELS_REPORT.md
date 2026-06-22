@@ -93,7 +93,7 @@ _mnv3s035_scratch / _mnv3s025_scratch).
 The hand-keypoints-only regressors do poorly on webcam-framed hands — on a held-out
 HaGRID landmark val: MNv3-small_050 PCK@0.1 **0.460**, _025 **0.395**. Retrain on
 `hand-keypoints + HaGRIDv2` combined (HaGRID's MediaPipe 21-pt labels via
-`prepare_hagrid_landmark.py`; 84.6 k train hands; 40 ep from scratch). RESEARCH ONLY.
+`prepare_hagrid_landmark.py`; 84.6 k train hands; 40 ep from scratch).
 
 | Backbone (data) | Params | hand-keypoints PCK | **webcam PCK** | f16 / int8 |
 |-----------------|------:|-------------------:|---------------:|-----------:|
@@ -178,8 +178,6 @@ own human hand boxes (class 1) + face boxes pseudo-labeled by **InsightFace SCRF
 Subject-disjoint official splits → 67,464 train imgs added to the original 31,656;
 **held-out webcam eval** = 10,100 imgs. Warm-start fine-tune (lr0 0.005, patience 12;
 `prepare_hagrid.py` + `face-hand-hagrid-v2.yaml` + `hagrid-val.yaml`).
-**RESEARCH USE ONLY** — InsightFace pretrained models are non-commercial (use YuNet/MIT
-or MediaPipe/Apache-2.0 as teacher for commercial).
 
 | Model (checkpoint) | original val — mAP50 / face / hand | webcam val — mAP50 / face / **hand** |
 |--------------------|-----------------------------------:|-------------------------------------:|

@@ -22,7 +22,7 @@ export const MODELS: ModelDef[] = [
     classNames: ['face', 'hand'],
     scoreThreshold: 0.5,
     description:
-      'Compact two-stage: Pico-P4P5 detector (float16, 1.3 MB) + MobileNetV3-small_025 landmark (float16, 0.6 MB), both fine-tuned on HaGRID so they work on webcam-framed hands. (int8 is even smaller — 1.2 MB — but the tfjs-tflite WASM runtime only supports float16/32.) Research use only (InsightFace / HaGRID licenses).',
+      'Compact two-stage: Pico-P4P5 detector (float16, 1.3 MB) + MobileNetV3-small_025 landmark (float16, 0.6 MB), both fine-tuned on HaGRID so they work on webcam-framed hands. (int8 is even smaller — 1.2 MB — but the tfjs-tflite WASM runtime only supports float16/32.)',
   },
   {
     id: 'face-hand-2stage',
