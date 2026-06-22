@@ -18,6 +18,8 @@ export interface ModelDef {
   /** Two-stage only: landmark regressor run on each detected hand crop. */
   landmarkUrl?: string;
   landmarkInput?: number;
+  /** Landmark input layout fallback if shape can't be read: 'nchw' (default) or 'nhwc'. */
+  landmarkLayout?: 'nchw' | 'nhwc';
   /** Minimum confidence to keep a detection/pose. */
   scoreThreshold: number;
   /** Keypoint score threshold (pose models only). */

@@ -21,6 +21,7 @@ const VENDOR = '/vendor/tflite';
 let scriptsLoaded = false;
 let model = null;
 let landmarkModel = null; // two-stage: regressor run on each hand crop
+let landmarkNCHW = true; // landmark input layout: channels-first [1,3,H,W] vs -last [1,H,W,3]
 let modelDef = null;
 
 function loadScriptsOnce() {
@@ -48,6 +49,11 @@ async function handleLoad(def) {
   model = await tflite.loadTFLiteModel(def.modelUrl, { numThreads });
   if (def.landmarkUrl) {
     landmarkModel = await tflite.loadTFLiteModel(def.landmarkUrl, { numThreads });
+    // Detect input layout from the model (fallback to config): onnx2tf may emit
+    // channels-first [1,3,H,W] or channels-last [1,H,W,3] depending on the export.
+    const lshape = landmarkModel.inputs?.[0]?.shape;
+    landmarkNCHW =
+      Array.isArray(lshape) && lshape.length === 4 ? lshape[1] === 3 : def.landmarkLayout !== 'nhwc';
   }
   postMessage({ type: 'ready', modelId: def.id });
 }
@@ -124,13 +130,12 @@ function runLandmark(input, box) {
   const side = Math.max(box.width, box.height) * 1.3; // padded square crop (matches training)
   const x1 = cx - side / 2;
   const y1 = cy - side / 2;
-  // crop from the detector's input tensor and resize; landmark model is NCHW.
-  const crop = tf.tidy(() =>
-    tf.transpose(
-      tf.image.cropAndResize(input, [[y1, x1, y1 + side, x1 + side]], [0], [size, size]),
-      [0, 3, 1, 2],
-    ),
-  );
+  // crop from the detector's input tensor and resize (NHWC); transpose to NCHW
+  // only if the landmark model expects channels-first.
+  const crop = tf.tidy(() => {
+    const resized = tf.image.cropAndResize(input, [[y1, x1, y1 + side, x1 + side]], [0], [size, size]);
+    return landmarkNCHW ? tf.transpose(resized, [0, 3, 1, 2]) : resized;
+  });
   const out = landmarkModel.predict(crop);
   const kp = out.dataSync(); // 42 values in [0,1] of the crop
   crop.dispose();

@@ -9,6 +9,22 @@ import type { ModelDef } from './types';
  */
 export const MODELS: ModelDef[] = [
   {
+    id: 'face-hand-2stage-compact',
+    name: 'Face + Hand — compact (HaGRID, ~1.2 MB int8)',
+    shortName: 'Compact',
+    type: 'twostage',
+    modelUrl: '/models/face_hand_pico_p45_hagrid_int8.tflite',
+    landmarkUrl: '/models/hand_landmark_mnv3s025_hagrid_int8.tflite',
+    landmarkInput: 224,
+    landmarkLayout: 'nhwc',
+    inputWidth: 640,
+    inputHeight: 640,
+    classNames: ['face', 'hand'],
+    scoreThreshold: 0.5,
+    description:
+      'Compact two-stage: Pico-P4P5 detector (int8, 0.81 MB) + MobileNetV3-small_025 landmark (int8, 0.41 MB), both fine-tuned on HaGRID so they work on webcam-framed hands. Research use only (InsightFace / HaGRID licenses).',
+  },
+  {
     id: 'face-hand-2stage',
     name: 'Face + Hand (2-stage landmarks)',
     shortName: 'Face+Hand',
