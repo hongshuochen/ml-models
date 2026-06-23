@@ -96,8 +96,9 @@ class OverlayView @JvmOverloads constructor(
             val paint = if (d.label == "hand") handPaint else facePaint
             canvas.drawRect(left, top, right, bottom, paint)
 
-            // Label chip ("hand 95%").
-            val text = "${d.label} ${(d.score * 100).toInt()}%"
+            // Label chip — recognized name for known faces ("Alex 62%"), else class + conf.
+            val text = if (d.name != null) "${d.name} ${(d.nameSim * 100).toInt()}%"
+            else "${d.label} ${(d.score * 100).toInt()}%"
             val tw = labelText.measureText(text)
             val chipTop = if (top > 40f) top - 40f else top
             labelBg.color = paint.color

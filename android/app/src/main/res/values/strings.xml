@@ -3,4 +3,6 @@
     <string name="app_name">Face + Hand</string>
     <string name="flip_camera">Flip camera</string>
     <string name="toggle_landmarks">Toggle landmarks</string>
+    <string name="open_gallery">Open face gallery</string>
+    <string name="recent_face">Recently seen face</string>
 </resources>

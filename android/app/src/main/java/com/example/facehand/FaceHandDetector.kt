@@ -21,6 +21,9 @@ data class Detection(
     val keypoints: FloatArray? = null,
     // True if this hand is classified as the "L" (thumb-index) pose.
     val isL: Boolean = false,
+    // Recognized identity for a face (gallery label) + its cosine similarity. null = unknown.
+    val name: String? = null,
+    val nameSim: Float = 0f,
 )
 
 /**
