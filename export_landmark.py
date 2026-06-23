@@ -33,8 +33,11 @@ def main():
     ap.add_argument("--backbone", default="torchvision")
     ap.add_argument("--ckpt", default=CKPT)
     ap.add_argument("--onnx", default=OUT_ONNX)
+    ap.add_argument("--num-kpts", type=int, default=21)
     args = ap.parse_args()
 
+    import train_hand_landmark as thl
+    thl.NUM_KPTS = args.num_kpts  # so build_model's head matches (21 hand / 5 face)
     m = build_model(args.backbone, pretrained=False)  # weights come from the checkpoint below
     m.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     w = Wrapped(m).eval()
@@ -46,6 +49,9 @@ def main():
     torch.onnx.export(w, dummy, args.onnx, input_names=["images"],
                       output_names=["keypoints"], opset_version=13, dynamo=False)
     print(f"exported ONNX -> {args.onnx}")
+
+    if args.num_kpts != 21:
+        return  # skip the hand-specific (21-pt skeleton) sanity viz for face/other models
 
     # sanity viz on a real hand crop (replicate eval cropping)
     import glob

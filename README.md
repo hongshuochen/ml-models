@@ -167,6 +167,17 @@ PCK@0.1 on hand-keypoints val (true GT) and the held-out HaGRID val (vs MediaPip
 (Landmark f32 ≈ 2× the f16 size. int8 landmark loads on native/ARM but not in the
 browser's tfjs-tflite WASM — use f16 there.)
 
+### Face-landmark regressor — 5 points (for face alignment)
+The 5 ArcFace points (left/right eye, nose, left/right mouth) — distilled from InsightFace,
+for aligning a detected face (similarity transform to a canonical template) downstream.
+
+| Backbone | Params | Data | PCK@0.1 (vs InsightFace) | f16 / int8 |
+|----------|------:|------|-------------------------:|-----------:|
+| **MobileNetV3-small_025** | 0.26 M | HaGRID (50.9 k faces) | **0.998** | **0.56 / 0.38 MB** |
+
+Trained with `train_hand_landmark.py --num-kpts 5 --flip-idx 1,0,2,4,3` (horizontal-flip
+aug swaps left/right eye & mouth). Stage-2: detector face box → crop → 5 points → align.
+
 ## Datasets (auto/scripted, git-ignored)
 
 | Dataset | Used for | Prep |

@@ -117,3 +117,18 @@ uv run yolo val model=<ckpt> data=hagrid-val.yaml imgsz=640 device=0  # webcam d
 ```
 → webcam hand AP@50 0.01-0.03 → ~0.99 (see MODELS_REPORT §7). Deploy pico `last.pt`
 int8 dyn-range 0.807 MB.
+
+## 8. Face landmark — 5 ArcFace points (for face alignment)
+InsightFace gives the 5 points free per detected face; distill them into a tiny regressor.
+```bash
+# Build dataset: largest face per HaGRID image + 5 kps (subject-disjoint splits)
+uv run python prepare_hagrid_face.py --device cpu --shuffle --seed 0   # -> datasets/hagrid-face
+# Train (note the face flip-idx: swap L/R eye & mouth on hflip)
+uv run python train_hand_landmark.py --backbone mobilenetv3_small_025 --no-pretrained \
+  --num-kpts 5 --flip-idx 1,0,2,4,3 --data datasets/hagrid-face \
+  --epochs 50 --batch 64 --device cuda --out runs/landmark/face_landmark_mnv3s025
+# Export (5-pt)
+uv run python export_landmark.py --backbone mobilenetv3_small_025 --num-kpts 5 \
+  --ckpt runs/landmark/face_landmark_mnv3s025/best.pt --onnx runs/landmark/face_landmark_mnv3s025/face.onnx
+```
+→ PCK@0.1 0.998 vs InsightFace · 0.26M params · f16 0.56MB / int8 0.38MB.
