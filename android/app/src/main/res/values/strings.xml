@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">Face + Hand</string>
     <string name="flip_camera">Flip camera</string>
+    <string name="toggle_landmarks">Toggle landmarks</string>
 </resources>

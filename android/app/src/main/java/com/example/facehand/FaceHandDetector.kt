@@ -17,6 +17,8 @@ data class Detection(
     val y1: Float,
     val x2: Float,
     val y2: Float,
+    // Optional stage-2 landmarks, frame-normalized: [x0,y0, x1,y1, ...]. null when disabled.
+    val keypoints: FloatArray? = null,
 )
 
 /**

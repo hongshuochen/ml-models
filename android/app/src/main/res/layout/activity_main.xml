@@ -30,4 +30,17 @@
         android:src="@drawable/ic_flip_camera"
         android:background="@drawable/flip_button_bg"
         android:contentDescription="@string/flip_camera" />
+
+    <!-- Toggle all landmarks (top-right): hand skeleton + face points. -->
+    <ImageButton
+        android:id="@+id/landmarkButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="20dp"
+        android:padding="11dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_landmarks"
+        android:background="@drawable/flip_button_bg"
+        android:contentDescription="@string/toggle_landmarks" />
 </FrameLayout>

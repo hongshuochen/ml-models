@@ -49,6 +49,8 @@ class OverlayView @JvmOverloads constructor(
         isAntiAlias = true
         setShadowLayer(4f, 0f, 0f, Color.BLACK)
     }
+    private val kptDot = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
+    private val kptLine = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true }
 
     /**
      * @param dets boxes normalized to the upright frame
@@ -93,6 +95,11 @@ class OverlayView @JvmOverloads constructor(
             labelBg.color = paint.color
             canvas.drawRect(left, chipTop, left + tw + 16f, chipTop + 40f, labelBg)
             canvas.drawText(text, left + 8f, chipTop + 30f, labelText)
+
+            // Stage-2 landmarks (when enabled): hand = connected skeleton, face = points only.
+            d.keypoints?.let { kp ->
+                drawKeypoints(canvas, kp, connect = d.label == "hand", color = paint.color, scale = scale, dx = dx, dy = dy)
+            }
         }
 
         canvas.drawText(
@@ -100,6 +107,33 @@ class OverlayView @JvmOverloads constructor(
             16f,
             height - 24f,
             hudText,
+        )
+    }
+
+    /** Draw frame-normalized keypoints; hand gets connecting edges, face just points. */
+    private fun drawKeypoints(canvas: Canvas, kp: FloatArray, connect: Boolean, color: Int, scale: Float, dx: Float, dy: Float) {
+        val n = kp.size / 2
+        fun vx(i: Int) = (if (mirror) 1f - kp[i * 2] else kp[i * 2]) * srcW * scale + dx
+        fun vy(i: Int) = kp[i * 2 + 1] * srcH * scale + dy
+        if (connect) {
+            kptLine.color = color
+            for (e in HAND_EDGES) {
+                if (e[0] >= n || e[1] >= n) continue
+                canvas.drawLine(vx(e[0]), vy(e[0]), vx(e[1]), vy(e[1]), kptLine)
+            }
+        }
+        for (i in 0 until n) canvas.drawCircle(vx(i), vy(i), 6f, kptDot)
+    }
+
+    companion object {
+        // MediaPipe 21-point hand topology, for connecting hand keypoints.
+        private val HAND_EDGES = arrayOf(
+            intArrayOf(0, 1), intArrayOf(1, 2), intArrayOf(2, 3), intArrayOf(3, 4),
+            intArrayOf(0, 5), intArrayOf(5, 6), intArrayOf(6, 7), intArrayOf(7, 8),
+            intArrayOf(5, 9), intArrayOf(9, 10), intArrayOf(10, 11), intArrayOf(11, 12),
+            intArrayOf(9, 13), intArrayOf(13, 14), intArrayOf(14, 15), intArrayOf(15, 16),
+            intArrayOf(13, 17), intArrayOf(17, 18), intArrayOf(18, 19), intArrayOf(19, 20),
+            intArrayOf(0, 17),
         )
     }
 }

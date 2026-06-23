@@ -1,7 +1,9 @@
 # Face + Hand — Android (CameraX + TFLite)
 
 Native Kotlin Android app that runs the **compact face+hand detector** on the live
-phone camera, in real time, fully on-device. (Detector only — no landmark stage yet.)
+phone camera, in real time, fully on-device. A **top-right** button toggles landmarks
+(21-pt hand skeleton + 5-pt face points, run as a stage-2 crop→regress); a **bottom-right**
+button flips front/back camera. Both are icon-only.
 
 - **Model:** `app/src/main/assets/face_hand.tflite` — Pico-P4P5 + HaGRID, int8
   dynamic-range (~0.8 MB). NMS-free YOLO26: input `[1,640,640,3]` f32, output
