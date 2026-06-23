@@ -19,6 +19,8 @@ data class Detection(
     val y2: Float,
     // Optional stage-2 landmarks, frame-normalized: [x0,y0, x1,y1, ...]. null when disabled.
     val keypoints: FloatArray? = null,
+    // True if this hand is classified as the "L" (thumb-index) pose.
+    val isL: Boolean = false,
 )
 
 /**

@@ -5,6 +5,11 @@ phone camera, in real time, fully on-device. A **top-right** button toggles land
 (21-pt hand skeleton + 5-pt face points, run as a stage-2 crop→regress); a **bottom-right**
 button flips front/back camera. Both are icon-only.
 
+**Framing gesture:** when **both hands** make the "L" (thumb-index) pose, the app auto-detects
+it (a rotation/flip-invariant landmark MLP, `l_gesture.tflite`) and draws a **quadrilateral**
+from the two hands' thumb+index tips, **darkening everything outside** it. No button — it's
+gesture-triggered.
+
 - **Model:** `app/src/main/assets/face_hand.tflite` — Pico-P4P5 + HaGRID, int8
   dynamic-range (~0.8 MB). NMS-free YOLO26: input `[1,640,640,3]` f32, output
   `[1,300,6]` = `[x1,y1,x2,y2,conf,cls]` (cls 0=face, 1=hand).

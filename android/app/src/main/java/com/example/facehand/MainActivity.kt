@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private var showLandmarks = false
     private lateinit var handReg: LandmarkRegressor
     private lateinit var faceReg: LandmarkRegressor
+    private lateinit var gestureClf: GestureClassifier
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -63,6 +64,7 @@ class MainActivity : AppCompatActivity() {
         detector = FaceHandDetector(this)
         handReg = LandmarkRegressor(this, "hand_landmark.tflite", 21)
         faceReg = LandmarkRegressor(this, "face_landmark.tflite", 5)
+        gestureClf = GestureClassifier(this)
         findViewById<ImageButton>(R.id.flipButton).setOnClickListener { flipCamera() }
         findViewById<ImageButton>(R.id.landmarkButton).setOnClickListener { showLandmarks = !showLandmarks }
 
@@ -127,16 +129,31 @@ class MainActivity : AppCompatActivity() {
             )
             val t0 = System.nanoTime()
             var detections = detector.detect(scaled)
-            if (showLandmarks) {
-                detections = detections.map { d ->
-                    val kp = landmarksFor(upright, d)
-                    if (kp != null) d.copy(keypoints = kp) else d
+            // Hands: always run landmarks (needed for the L-gesture check); faces: only when shown.
+            val lFingertips = ArrayList<FloatArray>()
+            detections = detections.map { d ->
+                if (d.label == "hand") {
+                    val r = landmarksFor(upright, d) ?: return@map d
+                    val (kp, isL) = r
+                    if (isL) lFingertips.add(floatArrayOf(kp[8], kp[9], kp[16], kp[17])) // thumb tip(4), index tip(8)
+                    d.copy(keypoints = if (showLandmarks) kp else null, isL = isL)
+                } else if (showLandmarks) {
+                    landmarksFor(upright, d)?.let { d.copy(keypoints = it.first) } ?: d
+                } else {
+                    d
                 }
+            }
+            // Framing gesture: 2+ "L" hands -> quad from the two hands' thumb+index tips (4 points).
+            val quad = if (lFingertips.size >= 2) {
+                val a = lFingertips[0]; val b = lFingertips[1]
+                floatArrayOf(a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3])
+            } else {
+                null
             }
             val ms = (System.nanoTime() - t0) / 1_000_000f
 
             val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
-            overlay.post { overlay.setResults(detections, upright.width, upright.height, mirror, ms) }
+            overlay.post { overlay.setResults(detections, upright.width, upright.height, mirror, ms, quad) }
         } catch (e: Exception) {
             Log.e(TAG, "Frame analysis failed", e)
         } finally {
@@ -157,7 +174,7 @@ class MainActivity : AppCompatActivity() {
      * Crop the box (square + 1.3x pad, off-image padded black to match training), run the
      * matching regressor (hand = 21, face = 5), return frame-normalized keypoints.
      */
-    private fun landmarksFor(upright: Bitmap, d: Detection): FloatArray? {
+    private fun landmarksFor(upright: Bitmap, d: Detection): Pair<FloatArray, Boolean>? {
         val W = upright.width
         val H = upright.height
         val cx = (d.x1 + d.x2) / 2f * W
@@ -178,6 +195,7 @@ class MainActivity : AppCompatActivity() {
         )
         val crop = Bitmap.createScaledBitmap(square, LandmarkRegressor.INPUT, LandmarkRegressor.INPUT, true)
         val pts = (if (d.label == "hand") handReg else faceReg).predict(crop)
+        val isL = d.label == "hand" && gestureClf.scoreL(pts) >= GestureClassifier.THRESHOLD
         val out = FloatArray(pts.size)
         var k = 0
         while (k < pts.size) {
@@ -185,7 +203,7 @@ class MainActivity : AppCompatActivity() {
             out[k + 1] = (y0 + pts[k + 1] * side) / H
             k += 2
         }
-        return out
+        return Pair(out, isL)
     }
 
     override fun onDestroy() {
@@ -194,6 +212,7 @@ class MainActivity : AppCompatActivity() {
         detector.close()
         handReg.close()
         faceReg.close()
+        gestureClf.close()
     }
 
     companion object {

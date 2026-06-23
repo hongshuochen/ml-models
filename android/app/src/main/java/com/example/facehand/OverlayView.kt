@@ -4,6 +4,9 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.Region
+import android.os.Build
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.max
@@ -51,6 +54,8 @@ class OverlayView @JvmOverloads constructor(
     }
     private val kptDot = Paint().apply { color = Color.WHITE; style = Paint.Style.FILL; isAntiAlias = true }
     private val kptLine = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true }
+    private val framePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 5f; isAntiAlias = true }
+    private var quad: FloatArray? = null // framing quad: 4 frame-normalized points (x,y)*4
 
     /**
      * @param dets boxes normalized to the upright frame
@@ -58,12 +63,13 @@ class OverlayView @JvmOverloads constructor(
      * @param mirrorX true for the front camera (preview is mirrored)
      * @param ms inference latency for the HUD
      */
-    fun setResults(dets: List<Detection>, frameW: Int, frameH: Int, mirrorX: Boolean, ms: Float) {
+    fun setResults(dets: List<Detection>, frameW: Int, frameH: Int, mirrorX: Boolean, ms: Float, quadPts: FloatArray? = null) {
         detections = dets
         srcW = frameW
         srcH = frameH
         mirror = mirrorX
         latencyMs = ms
+        quad = quadPts
         invalidate()
     }
 
@@ -75,6 +81,8 @@ class OverlayView @JvmOverloads constructor(
         val scale = max(width.toFloat() / srcW, height.toFloat() / srcH)
         val dx = (width - srcW * scale) / 2f
         val dy = (height - srcH * scale) / 2f
+
+        quad?.let { drawFraming(canvas, it, scale, dx, dy) }
 
         for (d in detections) {
             // Horizontal mirror for the front camera so boxes line up with the mirrored preview.
@@ -123,6 +131,32 @@ class OverlayView @JvmOverloads constructor(
             }
         }
         for (i in 0 until n) canvas.drawCircle(vx(i), vy(i), 6f, kptDot)
+    }
+
+    /** Darken everything outside the 4-point framing quad (gesture-triggered). */
+    private fun drawFraming(canvas: Canvas, q: FloatArray, scale: Float, dx: Float, dy: Float) {
+        val pts = Array(4) { i ->
+            val nx = if (mirror) 1f - q[i * 2] else q[i * 2]
+            floatArrayOf(nx * srcW * scale + dx, q[i * 2 + 1] * srcH * scale + dy)
+        }
+        // order around the centroid so the polygon doesn't self-intersect (bowtie)
+        val cxp = (pts[0][0] + pts[1][0] + pts[2][0] + pts[3][0]) / 4f
+        val cyp = (pts[0][1] + pts[1][1] + pts[2][1] + pts[3][1]) / 4f
+        val ordered = pts.sortedBy { Math.atan2((it[1] - cyp).toDouble(), (it[0] - cxp).toDouble()) }
+        val path = Path()
+        path.moveTo(ordered[0][0], ordered[0][1])
+        for (i in 1 until 4) path.lineTo(ordered[i][0], ordered[i][1])
+        path.close()
+        canvas.save()
+        if (Build.VERSION.SDK_INT >= 26) {
+            canvas.clipOutPath(path)
+        } else {
+            @Suppress("DEPRECATION")
+            canvas.clipPath(path, Region.Op.DIFFERENCE)
+        }
+        canvas.drawColor(0xB0000000.toInt()) // dim outside the frame
+        canvas.restore()
+        canvas.drawPath(path, framePaint) // outline the frame
     }
 
     companion object {
