@@ -18,14 +18,9 @@ import torch.nn as nn
 from PIL import Image
 
 ROOT = Path("/home/max/2026/ml-models")
-LM = ROOT / "datasets/hagrid-landmark"
 POS = {"thumb_index", "thumb_index2"}
 NK = 21
 PAIRS = list(combinations(range(NK), 2))  # 210 unique point pairs
-
-
-def gesture_of(path):  # hagrid__<gesture>__<uuid>.txt
-    return Path(path).stem.split("__")[1]
 
 
 def features(kp_img, box, W, H):
