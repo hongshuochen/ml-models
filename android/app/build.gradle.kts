@@ -46,8 +46,9 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraX")
     implementation("androidx.camera:camera-view:$cameraX")
 
-    // TensorFlow Lite — on-device inference (base Interpreter API for our custom YOLO model).
-    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    // TensorFlow Lite — on-device inference (base Interpreter API). 2.17.0 (not 2.16.1) so the
+    // int8 dynamic-range models' hybrid FULLY_CONNECTED op (v12) loads; 2.16.1 only knew up to v11.
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
 
     // AndroidX UI essentials.
     implementation("androidx.core:core-ktx:1.13.1")

@@ -38,12 +38,14 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
 - **TFLite int8 export gotchas**: export int8 to a SEPARATE dir (it clobbers f32/f16), use a small
   `fraction` for calibration (full val → huge calib array / OOM/hang). Landmark export needs
   `onnxsim` before `onnx2tf` (else onnx2tf errors).
-- **Android landmark models must be float16, NOT int8 dyn-range.** int8 dynamic-range emits a
-  *hybrid* `FULLY_CONNECTED` at **op version 12**, which the bundled `tensorflow-lite:2.16.1`
-  runtime can't load → `Didn't find op for builtin code FULLY_CONNECTED version 12`. float16
-  uses FC v1 (universally supported) and is barely larger (~0.56 vs 0.38 MB). Re-export from the
-  checkpoint via `export_landmark.py` → `onnxsim` → `onnx2tf` (current toolchain emits FC v1) and
-  ship the `*_float16.tflite`. Either match converter/runtime versions or just use float16.
+- **int8 dyn-range FC is op v12 → needs `tensorflow-lite` ≥ 2.17.0.** int8 dynamic-range emits a
+  *hybrid* `FULLY_CONNECTED` at **op version 12**; the old `tensorflow-lite:2.16.1` only knew FC up
+  to v11 → `Didn't find op for builtin code FULLY_CONNECTED version 12` at model load. The Android
+  app pins **2.17.0** (the last `org.tensorflow:tensorflow-lite` on Maven — newer is the LiteRT
+  rebrand `com.google.ai.edge.litert`), which loads v12, so the landmark + gesture models ship as
+  int8 dyn-range (≈lossless: landmark ~0.5px, gesture 300/300 same decision). Conv-only models
+  (the YOLO detector) have no FC and load on any runtime. float16 (FC v1) is the fallback only if
+  you must stay on an older runtime.
 
 ## Conventions
 - Keep a config + an exact reproduce command for **every** model (configs committed; commands in TRAINING.md).

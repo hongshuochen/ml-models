@@ -27,10 +27,11 @@ under it. The gallery persists to `filesDir/gallery/` across restarts.
   → cosine, recognition threshold **0.3**. Conversion was numerically verified bit-exact to the
   source ONNX (parity cosine 1.0); see `verify_mbf_tflite.py`. float16 (~6.8 MB, parity 0.999992)
   and dynamic-int8 (~3.6 MB, parity 0.9885) variants build to `runs/face_recog/` as drop-ins.
-- **Landmark regressors:** `hand_landmark.tflite` (21-pt) / `face_landmark.tflite` (5-pt),
-  MobileNetV3-small-025, **float16** (~0.6 MB each). The 5-pt model feeds both the landmark
-  overlay and the ArcFace alignment. (They're float16, **not** int8: int8 dynamic-range emits a
-  hybrid `FULLY_CONNECTED` op v12 that `tensorflow-lite:2.16.1` can't load — see CLAUDE.md.)
+- **Landmark regressors:** `hand_landmark.tflite` (21-pt, ~0.4 MB) / `face_landmark.tflite`
+  (5-pt, ~0.36 MB), MobileNetV3-small-025, **int8 dynamic-range**. The 5-pt model feeds both the
+  landmark overlay and the ArcFace alignment. (int8 dyn-range needs `tensorflow-lite` ≥ 2.17.0 for
+  its hybrid `FULLY_CONNECTED` v12 op — see CLAUDE.md.)
+- **Gesture MLP:** `l_gesture.tflite` (~19 KB), int8 dynamic-range.
 - **Camera:** CameraX `ImageAnalysis` (`KEEP_ONLY_LATEST`, RGBA_8888) on a background
   thread; `PreviewView` (cover-fit) with an `OverlayView` drawing the boxes
   (face = cyan, hand = red) and recognized names. Front camera by default, with a **Flip camera**
@@ -76,9 +77,10 @@ over int8. Keep input 640² and the `[1,300,6]` output layout, or adjust the con
 ## Notes
 - `androidResources { noCompress += "tflite" }` (in `app/build.gradle.kts`) keeps the
   models uncompressed so they can be memory-mapped from the APK.
-- int8 dynamic-range runs fine here (Android TFLite/XNNPACK supports hybrid ops and gets
-  an ARM speedup — unlike the browser's tfjs-tflite WASM, which needs float16).
-- The 13.6 MB embedder loads on the analysis thread (not the UI thread) so it doesn't lengthen
+- int8 dynamic-range runs fine here (Android TFLite/XNNPACK supports hybrid ops and gets an ARM
+  speedup — unlike the browser's tfjs-tflite WASM, which needs float16). Its hybrid
+  `FULLY_CONNECTED` is op v12, so the runtime is pinned to **2.17.0** (2.16.1 was too old).
+- The 13.6 MB fp32 embedder loads on the analysis thread (not the UI thread) so it doesn't lengthen
   cold start; face recognition simply starts a beat after the camera. To shrink the APK, swap
   `face_embed.tflite` for the float16 build (~6.8 MB, indistinguishable accuracy).
-- minSdk 24, targetSdk 34, Kotlin, CameraX 1.3.4, tensorflow-lite 2.16.1.
+- minSdk 24, targetSdk 34, Kotlin, CameraX 1.3.4, tensorflow-lite 2.17.0.
