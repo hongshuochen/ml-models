@@ -27,8 +27,10 @@ under it. The gallery persists to `filesDir/gallery/` across restarts.
   → cosine, recognition threshold **0.3**. Conversion was numerically verified bit-exact to the
   source ONNX (parity cosine 1.0); see `verify_mbf_tflite.py`. float16 (~6.8 MB, parity 0.999992)
   and dynamic-int8 (~3.6 MB, parity 0.9885) variants build to `runs/face_recog/` as drop-ins.
-- **Landmark regressors:** `hand_landmark.tflite` (21-pt) / `face_landmark.tflite` (5-pt) — the
-  5-pt model feeds both the landmark overlay and the ArcFace alignment.
+- **Landmark regressors:** `hand_landmark.tflite` (21-pt) / `face_landmark.tflite` (5-pt),
+  MobileNetV3-small-025, **float16** (~0.6 MB each). The 5-pt model feeds both the landmark
+  overlay and the ArcFace alignment. (They're float16, **not** int8: int8 dynamic-range emits a
+  hybrid `FULLY_CONNECTED` op v12 that `tensorflow-lite:2.16.1` can't load — see CLAUDE.md.)
 - **Camera:** CameraX `ImageAnalysis` (`KEEP_ONLY_LATEST`, RGBA_8888) on a background
   thread; `PreviewView` (cover-fit) with an `OverlayView` drawing the boxes
   (face = cyan, hand = red) and recognized names. Front camera by default, with a **Flip camera**

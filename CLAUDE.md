@@ -38,6 +38,12 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
 - **TFLite int8 export gotchas**: export int8 to a SEPARATE dir (it clobbers f32/f16), use a small
   `fraction` for calibration (full val → huge calib array / OOM/hang). Landmark export needs
   `onnxsim` before `onnx2tf` (else onnx2tf errors).
+- **Android landmark models must be float16, NOT int8 dyn-range.** int8 dynamic-range emits a
+  *hybrid* `FULLY_CONNECTED` at **op version 12**, which the bundled `tensorflow-lite:2.16.1`
+  runtime can't load → `Didn't find op for builtin code FULLY_CONNECTED version 12`. float16
+  uses FC v1 (universally supported) and is barely larger (~0.56 vs 0.38 MB). Re-export from the
+  checkpoint via `export_landmark.py` → `onnxsim` → `onnx2tf` (current toolchain emits FC v1) and
+  ship the `*_float16.tflite`. Either match converter/runtime versions or just use float16.
 
 ## Conventions
 - Keep a config + an exact reproduce command for **every** model (configs committed; commands in TRAINING.md).
