@@ -24,3 +24,4 @@ bench/
 # OS / editor
 .DS_Store
 *.swp
+landmark_check.png
