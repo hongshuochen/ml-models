@@ -106,6 +106,13 @@ HaGRID landmark val: MNv3-small_050 PCK@0.1 **0.460**, _025 **0.395**. Retrain o
 webcam PCK is vs MediaPipe pseudo-labels (agreement, not true GT); hand-keypoints val is
 true GT. **Compact deploy:** MNv3-small_025 +HaGRID, **int8 0.41 MB**.
 
+### 4c. Face landmark — 5 points (face alignment)
+MobileNetV3-small_025 regressing the 5 ArcFace points (eyes, nose, mouth corners),
+distilled from InsightFace on 50.9 k HaGRID faces (subject-disjoint; `prepare_hagrid_face.py`;
+`--num-kpts 5 --flip-idx 1,0,2,4,3`). **PCK@0.1 0.998** vs InsightFace on 6.8 k held-out
+faces · 0.26 M params · f16 0.56 MB / **int8 0.38 MB**. Stage-2: detector face box → crop →
+5 points → similarity-transform alignment.
+
 ³ Accuracy from the torch model; the f16 TFLite is numerically near-identical.
 **Stage-2 role:** YOLO (model 1 or 3) gives the hand box → crop → this regressor
 predicts the 21 keypoints. Far lighter than the single-shot pose model (**0.12 vs
