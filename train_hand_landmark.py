@@ -88,7 +88,7 @@ class HandCropDataset(Dataset):
         return img, target, mask
 
 
-def build_model(backbone="torchvision", pretrained=True):
+def build_model(backbone="torchvision", pretrained=True, head_dim=None):
     # torchvision MobileNetV3-small (full width) ...
     if backbone in ("torchvision", "mnv3s"):
         w = torchvision.models.MobileNet_V3_Small_Weights.IMAGENET1K_V1 if pretrained else None
@@ -101,10 +101,17 @@ def build_model(backbone="torchvision", pretrained=True):
     mm = re.fullmatch(r"mobilenetv3_small_(\d{3})", backbone)
     if mm and not timm.is_model(backbone):
         from timm.models.mobilenetv3 import _gen_mobilenet_v3
-        return _gen_mobilenet_v3("mobilenetv3_small_100", int(mm.group(1)) / 100.0,
-                                 pretrained=False, num_classes=NUM_KPTS * 2, in_chans=3)
-    # ... or any registered timm backbone, e.g. mobilenetv3_small_050 / mobilenetv2_035
-    return timm.create_model(backbone, pretrained=pretrained, num_classes=NUM_KPTS * 2, in_chans=3)
+        m = _gen_mobilenet_v3("mobilenetv3_small_100", int(mm.group(1)) / 100.0,
+                              pretrained=False, num_classes=NUM_KPTS * 2, in_chans=3)
+    else:
+        # ... or any registered timm backbone, e.g. mobilenetv3_small_050 / mobilenetv2_035
+        m = timm.create_model(backbone, pretrained=pretrained, num_classes=NUM_KPTS * 2, in_chans=3)
+    # Optionally shrink the MobileNetV3 head conv (default 1024) — at low widths the fixed
+    # 1024 head dominates params, so 512/256 cuts size a lot with little accuracy cost.
+    if head_dim is not None and hasattr(m, "conv_head"):
+        m.conv_head = nn.Conv2d(m.conv_head.in_channels, head_dim, kernel_size=1, stride=1)
+        m.classifier = nn.Linear(head_dim, NUM_KPTS * 2)
+    return m
 
 
 @torch.no_grad()
@@ -142,6 +149,7 @@ def main():
     ap.add_argument("--eval-only", action="store_true", help="load --ckpt and just evaluate on --data val")
     ap.add_argument("--ckpt", default="", help="checkpoint to evaluate (with --eval-only)")
     ap.add_argument("--limit", type=int, default=0, help="cap samples for a smoke test")
+    ap.add_argument("--head-dim", type=int, default=0, help="override MobileNetV3 head conv width (0 = default 1024)")
     args = ap.parse_args()
 
     global NUM_KPTS
@@ -155,7 +163,7 @@ def main():
     if args.eval_only:
         va = HandCropDataset(args.data, "val", args.input, train=False)
         vl = DataLoader(va, args.batch, shuffle=False, num_workers=args.workers, pin_memory=True)
-        model = build_model(args.backbone, pretrained=False).to(device)
+        model = build_model(args.backbone, pretrained=False, head_dim=args.head_dim or None).to(device)
         model.load_state_dict(torch.load(args.ckpt, map_location=device))
         err, pck = evaluate(model, vl, device)
         print(f"EVAL {args.ckpt} on {args.data}/val ({len(va)} hands): val_err={err:.4f} PCK@0.1={pck:.3f}")
@@ -171,8 +179,8 @@ def main():
     tl = DataLoader(tr, args.batch, shuffle=True, num_workers=args.workers, pin_memory=True, drop_last=True)
     vl = DataLoader(va, args.batch, shuffle=False, num_workers=args.workers, pin_memory=True)
 
-    model = build_model(args.backbone, pretrained=not args.no_pretrained).to(device)
-    print(f"backbone={args.backbone}  pretrained={not args.no_pretrained}  params={sum(p.numel() for p in model.parameters()):,}")
+    model = build_model(args.backbone, pretrained=not args.no_pretrained, head_dim=args.head_dim or None).to(device)
+    print(f"backbone={args.backbone}  pretrained={not args.no_pretrained}  head_dim={args.head_dim or 1024}  params={sum(p.numel() for p in model.parameters()):,}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
     scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")

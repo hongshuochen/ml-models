@@ -33,6 +33,9 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
 - **int8 gives no x86/WASM CPU speedup** — its only benefit is file size.
 - **Landmark backbones don't need ImageNet pretraining** (from-scratch matches). Custom MobileNetV3-small
   widths (`_035`, `_025`) aren't in timm — build via `timm.models.mobilenetv3._gen_mobilenet_v3`.
+- **Landmark head-256 beats head-1024.** MobileNetV3's head conv (→1024, sized for 1000-class ImageNet)
+  dominates params at low width; `train_hand_landmark.py --head-dim 256` cuts the int8 model ~38% with
+  no accuracy loss (slightly better — mild regularization). Deployed hand/face landmark use head 256.
 - **Face landmarks need a flip_idx swap** on horizontal-flip aug (`--flip-idx 1,0,2,4,3`: swap
   L/R eye & mouth corners); hands stay identity. The same trainer does both via `--num-kpts`.
 - **TFLite int8 export gotchas**: export int8 to a SEPARATE dir (it clobbers f32/f16), use a small

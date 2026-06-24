@@ -132,3 +132,21 @@ uv run python export_landmark.py --backbone mobilenetv3_small_025 --num-kpts 5 \
   --ckpt runs/landmark/face_landmark_mnv3s025/best.pt --onnx runs/landmark/face_landmark_mnv3s025/face.onnx
 ```
 → PCK@0.1 0.998 vs InsightFace · 0.26M params · f16 0.56MB / int8 0.38MB.
+
+## 9. Landmark head-256 trim (deployed) — smaller, no accuracy loss
+MobileNetV3's head conv (144→1024) is overkill for keypoint regression; `--head-dim 256`
+shrinks it with no accuracy cost (slightly better, see MODELS_REPORT §4c/§4d). The deployed
+hand + face landmark `.tflite` use head 256.
+```bash
+# hand (21-pt): same recipe as §7 + --head-dim 256
+uv run python train_hand_landmark.py --backbone mobilenetv3_small_025 --no-pretrained \
+  --num-kpts 21 --head-dim 256 --data datasets/hand-keypoints datasets/hagrid-landmark \
+  --epochs 40 --batch 64 --device cuda --out runs/landmark/hand_landmark_mnv3s025_h256
+# face (5-pt): same recipe as §8 + --head-dim 256
+uv run python train_hand_landmark.py --backbone mobilenetv3_small_025 --no-pretrained \
+  --num-kpts 5 --flip-idx 1,0,2,4,3 --head-dim 256 --data datasets/hagrid-face \
+  --epochs 50 --batch 64 --device cuda --out runs/landmark/face_landmark_mnv3s025_h256
+# export each: export_landmark.py --head-dim 256 --num-kpts {21|5} --ckpt <best.pt> -> onnxsim -> onnx2tf
+#   then dynamic-range int8 (Optimize.DEFAULT). Deployed: hand 0.25MB, face 0.24MB int8.
+```
+→ hand webcam PCK 0.899→0.905, int8 0.41→0.25MB · face PCK 0.998→0.999, int8 0.38→0.24MB.

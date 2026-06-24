@@ -34,11 +34,12 @@ def main():
     ap.add_argument("--ckpt", default=CKPT)
     ap.add_argument("--onnx", default=OUT_ONNX)
     ap.add_argument("--num-kpts", type=int, default=21)
+    ap.add_argument("--head-dim", type=int, default=0, help="MobileNetV3 head conv width (0 = default 1024)")
     args = ap.parse_args()
 
     import train_hand_landmark as thl
     thl.NUM_KPTS = args.num_kpts  # so build_model's head matches (21 hand / 5 face)
-    m = build_model(args.backbone, pretrained=False)  # weights come from the checkpoint below
+    m = build_model(args.backbone, pretrained=False, head_dim=args.head_dim or None)  # weights from ckpt below
     m.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
     w = Wrapped(m).eval()
 

@@ -100,18 +100,28 @@ HaGRID landmark val: MNv3-small_050 PCK@0.1 **0.460**, _025 **0.395**. Retrain o
 | MNv3-small_050 (hk only) | 0.61 M | 0.959 | 0.460 | 1.27 MB |
 | **MNv3-small_050 (+HaGRID)** | 0.61 M | 0.945 | **0.927** | 1.27 MB |
 | MNv3-small_025 (hk only) | 0.29 M | 0.942 | 0.395 | 0.63 MB |
-| **MNv3-small_025 (+HaGRID)** | 0.29 M | 0.921 | **0.899** | 0.63 / **0.41 MB** |
+| MNv3-small_025 (+HaGRID), head 1024 | 0.29 M | 0.921 | 0.899 | 0.63 / 0.41 MB |
+| **MNv3-small_025 (+HaGRID), head 256** | **0.14 M** | **0.923** | **0.905** | — / **0.25 MB** |
+
+### 4c. Head-width sweep — the 1024 head conv is overkill
+MobileNetV3's final head conv (144→**1024**) is sized for 1000-class ImageNet; for keypoint
+regression it dominates params at low widths. Shrinking it (`--head-dim`) on the deployed
+MNv3-small_025 +HaGRID recipe (40 ep, scratch) **shrinks the model with no accuracy cost —
+slightly better, in fact** (mild regularization): head 1024→512→256 gives webcam PCK
+0.899 → 0.906 → 0.905 and int8 **0.41 → 0.30 → 0.25 MB**. **Deployed: head 256** (0.14 M
+params, int8 0.25 MB). Same lever applies to the face model (§8) and any pico classifier.
 
 **Webcam landmark PCK 0.40–0.46 → ~0.90–0.93**, small cost to the original val. Caveat:
 webcam PCK is vs MediaPipe pseudo-labels (agreement, not true GT); hand-keypoints val is
 true GT. **Compact deploy:** MNv3-small_025 +HaGRID, **int8 0.41 MB**.
 
-### 4c. Face landmark — 5 points (face alignment)
+### 4d. Face landmark — 5 points (face alignment)
 MobileNetV3-small_025 regressing the 5 ArcFace points (eyes, nose, mouth corners),
 distilled from InsightFace on 50.9 k HaGRID faces (subject-disjoint; `prepare_hagrid_face.py`;
-`--num-kpts 5 --flip-idx 1,0,2,4,3`). **PCK@0.1 0.998** vs InsightFace on 6.8 k held-out
-faces · 0.26 M params · f16 0.56 MB / **int8 0.38 MB**. Stage-2: detector face box → crop →
-5 points → similarity-transform alignment.
+`--num-kpts 5 --flip-idx 1,0,2,4,3`). Same **head-256** trim as §4c — PCK@0.1 holds (head
+1024→256: 0.998 → **0.999**) while int8 drops **0.38 → 0.24 MB**. **Deployed: head 256** —
+PCK@0.1 0.999 vs InsightFace on 6.8 k held-out faces · 0.14 M params · **int8 0.24 MB**.
+Stage-2: detector face box → crop → 5 points → similarity-transform alignment.
 
 ³ Accuracy from the torch model; the f16 TFLite is numerically near-identical.
 **Stage-2 role:** YOLO (model 1 or 3) gives the hand box → crop → this regressor
