@@ -29,5 +29,12 @@
             android:label="@string/open_gallery"
             android:parentActivityName=".MainActivity"
             android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".FramingGalleryActivity"
+            android:exported="false"
+            android:label="@string/open_framing_gallery"
+            android:parentActivityName=".MainActivity"
+            android:screenOrientation="portrait" />
     </application>
 </manifest>

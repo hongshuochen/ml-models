@@ -5,10 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.widget.ImageButton
@@ -64,6 +66,11 @@ class MainActivity : AppCompatActivity() {
     private var recentBmp1: Bitmap? = null
     private var lastRecentId = -1
 
+    // Framing capture: when the two-hand "L" frame is active, snapshot the framed square
+    // (with padding) into the framing gallery, then cool down before the next shot.
+    private lateinit var framingGallery: FramingGallery
+    @Volatile private var lastFramingMs = 0L
+
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) startCamera()
@@ -89,10 +96,14 @@ class MainActivity : AppCompatActivity() {
         analysisExecutor.execute { embedder = FaceEmbedder(this) }
         recent0 = findViewById(R.id.recent0)
         recent1 = findViewById(R.id.recent1)
+        framingGallery = FramingGallery.get(this)
         findViewById<ImageButton>(R.id.flipButton).setOnClickListener { flipCamera() }
         findViewById<ImageButton>(R.id.landmarkButton).setOnClickListener { showLandmarks = !showLandmarks }
         findViewById<ImageButton>(R.id.galleryButton).setOnClickListener {
             startActivity(Intent(this, GalleryActivity::class.java))
+        }
+        findViewById<ImageButton>(R.id.framingGalleryButton).setOnClickListener {
+            startActivity(Intent(this, FramingGalleryActivity::class.java))
         }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -182,6 +193,8 @@ class MainActivity : AppCompatActivity() {
             } else {
                 null
             }
+            // Auto-capture the framed square (with cooldown) while the frame is held.
+            if (quad != null) maybeCaptureFraming(upright, quad)
             val ms = (System.nanoTime() - t0) / 1_000_000f
 
             val w = upright.width
@@ -319,6 +332,55 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** While the two-hand frame is held, snapshot the framed square into the gallery (cooldown-gated). */
+    private fun maybeCaptureFraming(upright: Bitmap, quad: FloatArray) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastFramingMs < FRAMING_COOLDOWN_MS) return
+        val crop = squareCropFromQuad(upright, quad) ?: return
+        lastFramingMs = now
+        // Front camera preview is mirrored, so mirror the saved shot to match what the user saw.
+        val shot = if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+            val m = Matrix().apply { preScale(-1f, 1f) }
+            Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, m, false).also { if (it != crop) crop.recycle() }
+        } else {
+            crop
+        }
+        framingGallery.save(shot, System.currentTimeMillis())
+        shot.recycle()
+        overlay.post { overlay.flashCapture() }
+    }
+
+    /** Bounding box of the 4 frame points -> square + padding -> crop (off-image area padded black). */
+    private fun squareCropFromQuad(upright: Bitmap, quad: FloatArray): Bitmap? {
+        val w = upright.width
+        val h = upright.height
+        var minX = 1f; var maxX = 0f; var minY = 1f; var maxY = 0f
+        for (i in 0 until 4) {
+            val x = quad[i * 2]; val y = quad[i * 2 + 1]
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        }
+        val cx = (minX + maxX) / 2f * w
+        val cy = (minY + maxY) / 2f * h
+        val side = (max((maxX - minX) * w, (maxY - minY) * h) * (1f + 2f * FRAMING_PAD)).toInt()
+        if (side < 8) return null
+        val x0 = (cx - side / 2f).toInt()
+        val y0 = (cy - side / 2f).toInt()
+        val srcL = x0.coerceIn(0, w); val srcT = y0.coerceIn(0, h)
+        val srcR = (x0 + side).coerceIn(0, w); val srcB = (y0 + side).coerceIn(0, h)
+        if (srcR <= srcL || srcB <= srcT) return null
+        val out = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        Canvas(out).apply {
+            drawColor(Color.BLACK) // pad off-image area black so it's always a full square
+            drawBitmap(
+                upright,
+                Rect(srcL, srcT, srcR, srcB),
+                RectF((srcL - x0).toFloat(), (srcT - y0).toFloat(), (srcR - x0).toFloat(), (srcB - y0).toFloat()),
+                null,
+            )
+        }
+        return out
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         analysisExecutor.shutdown()
@@ -334,5 +396,7 @@ class MainActivity : AppCompatActivity() {
         private const val RECOG_THRESHOLD = 0.3f // cosine; verified: different-person never exceeds 0.21
         private const val RECOG_MIN_SCORE = 0.6f // detector confidence gate before embedding
         private const val MIN_FACE_FRAC = 0.07f  // min face-box side as a fraction of the frame
+        private const val FRAMING_COOLDOWN_MS = 5000L // wait this long between framing captures
+        private const val FRAMING_PAD = 0.15f         // padding added around the framed bbox
     }
 }

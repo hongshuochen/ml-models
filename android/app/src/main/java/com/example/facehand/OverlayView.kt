@@ -7,6 +7,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Region
 import android.os.Build
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
 import kotlin.math.max
@@ -56,6 +57,13 @@ class OverlayView @JvmOverloads constructor(
     private val kptLine = Paint().apply { style = Paint.Style.STROKE; strokeWidth = 4f; isAntiAlias = true }
     private val framePaint = Paint().apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 5f; isAntiAlias = true }
     private var quad: FloatArray? = null // framing quad: 4 frame-normalized points (x,y)*4
+    private var flashUntil = 0L          // shutter flash (capture feedback) end time
+
+    /** Briefly flash the screen white to acknowledge a framing capture. */
+    fun flashCapture() {
+        flashUntil = SystemClock.elapsedRealtime() + FLASH_MS
+        invalidate()
+    }
 
     /**
      * @param dets boxes normalized to the upright frame
@@ -117,6 +125,14 @@ class OverlayView @JvmOverloads constructor(
             height - 24f,
             hudText,
         )
+
+        // Shutter flash on capture — fades out over FLASH_MS.
+        val rem = flashUntil - SystemClock.elapsedRealtime()
+        if (rem > 0) {
+            val alpha = (rem.toFloat() / FLASH_MS * 200f).toInt().coerceIn(0, 200)
+            canvas.drawColor(Color.argb(alpha, 255, 255, 255))
+            invalidate() // keep animating the fade
+        }
     }
 
     /** Draw frame-normalized keypoints; hand gets connecting edges, face just points. */
@@ -161,6 +177,8 @@ class OverlayView @JvmOverloads constructor(
     }
 
     companion object {
+        private const val FLASH_MS = 220L // shutter-flash duration
+
         // MediaPipe 21-point hand topology, for connecting hand keypoints.
         private val HAND_EDGES = arrayOf(
             intArrayOf(0, 1), intArrayOf(1, 2), intArrayOf(2, 3), intArrayOf(3, 4),

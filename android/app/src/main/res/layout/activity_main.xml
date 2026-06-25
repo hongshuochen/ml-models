@@ -31,18 +31,35 @@
         android:background="@drawable/flip_button_bg"
         android:contentDescription="@string/flip_camera" />
 
-    <!-- Toggle all landmarks (top-right): hand skeleton + face points. -->
-    <ImageButton
-        android:id="@+id/landmarkButton"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
+    <!-- Top-right stack: toggle landmarks, then open the framing gallery. -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_margin="20dp"
-        android:padding="11dp"
-        android:scaleType="fitCenter"
-        android:src="@drawable/ic_landmarks"
-        android:background="@drawable/flip_button_bg"
-        android:contentDescription="@string/toggle_landmarks" />
+        android:orientation="vertical">
+
+        <ImageButton
+            android:id="@+id/landmarkButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_landmarks"
+            android:background="@drawable/flip_button_bg"
+            android:contentDescription="@string/toggle_landmarks" />
+
+        <ImageButton
+            android:id="@+id/framingGalleryButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_framing"
+            android:background="@drawable/flip_button_bg"
+            android:contentDescription="@string/open_framing_gallery" />
+    </LinearLayout>
 
     <!-- Face gallery (top-left): icon opens the gallery; below it, the two most-recently-seen faces. -->
     <LinearLayout
