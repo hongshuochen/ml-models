@@ -437,7 +437,6 @@ class MainActivity : AppCompatActivity() {
         lastFramingMs = now
         val q = quad.copyOf()
         val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
-        overlay.post { overlay.flashCapture() } // called from the analysis thread -> post to UI
         shutterSound.play(MediaActionSound.SHUTTER_CLICK)
         ic.takePicture(captureExecutor, object : ImageCapture.OnImageCapturedCallback() {
             override fun onCaptureSuccess(image: ImageProxy) {
@@ -499,8 +498,8 @@ class MainActivity : AppCompatActivity() {
         runOnUiThread {
             val old = framingThumbBmp
             framingThumbBmp = thumb
+            framingThumb.setPadding(0, 0, 0, 0) // drop the placeholder inset so the photo fills the circle
             framingThumb.setImageDrawable(circular(thumb))
-            framingThumb.visibility = View.VISIBLE
             old?.recycle()
         }
     }

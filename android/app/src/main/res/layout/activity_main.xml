@@ -18,7 +18,8 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Round thumbnail of the latest framing shot (bottom-left, above the objs HUD): tap = gallery. -->
+    <!-- Round framing-gallery button (bottom-left, above the objs HUD): shows a placeholder icon
+         until the first shot, then the latest framing thumbnail. Tap = open the framing gallery. -->
     <ImageView
         android:id="@+id/framingThumb"
         android:layout_width="56dp"
@@ -26,8 +27,9 @@
         android:layout_gravity="bottom|start"
         android:layout_marginStart="20dp"
         android:layout_marginBottom="48dp"
-        android:scaleType="centerCrop"
-        android:visibility="gone"
+        android:padding="14dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/ic_framing"
         android:background="@drawable/flip_button_bg"
         android:contentDescription="@string/open_framing_gallery" />
 
