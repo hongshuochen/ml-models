@@ -18,6 +18,20 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Snapshot the current framing (bottom-left, above the objs HUD): tap = capture. -->
+    <ImageButton
+        android:id="@+id/snapshotButton"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="20dp"
+        android:layout_marginBottom="48dp"
+        android:padding="12dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_shutter"
+        android:background="@drawable/flip_button_bg"
+        android:contentDescription="@string/snapshot" />
+
     <!-- Switch between front and back cameras (icon only, bottom-right). -->
     <ImageButton
         android:id="@+id/flipButton"

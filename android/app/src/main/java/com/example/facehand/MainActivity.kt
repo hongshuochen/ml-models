@@ -11,7 +11,6 @@ import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Bundle
-import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.widget.ImageButton
@@ -30,6 +29,7 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -82,8 +82,7 @@ class MainActivity : AppCompatActivity() {
     // Framing capture: when the two-hand "L" frame is active, snapshot the framed square
     // (with padding) into the framing gallery, then cool down before the next shot.
     private lateinit var framingGallery: FramingGallery
-    @Volatile private var lastFramingMs = 0L
-    @Volatile private var framingArmed = false  // capture only when the toggle is on
+    @Volatile private var lastQuad: FloatArray? = null // latest framing quad (for the snapshot button)
     private var imageCapture: ImageCapture? = null     // full-res snapshot use case (null if unsupported)
     private val capturing = AtomicBoolean(false)       // guards against overlapping takePicture calls
 
@@ -115,19 +114,16 @@ class MainActivity : AppCompatActivity() {
         framingGallery = FramingGallery.get(this)
         findViewById<ImageButton>(R.id.flipButton).setOnClickListener { flipCamera() }
         findViewById<ImageButton>(R.id.landmarkButton).setOnClickListener { showLandmarks = !showLandmarks }
-        findViewById<ImageButton>(R.id.galleryButton).setOnClickListener {
-            startActivity(Intent(this, GalleryActivity::class.java))
+        // Tap the gallery icon OR a recent-face thumbnail to open the face gallery.
+        val openFaceGallery = View.OnClickListener { startActivity(Intent(this, GalleryActivity::class.java)) }
+        findViewById<ImageButton>(R.id.galleryButton).setOnClickListener(openFaceGallery)
+        recent0.setOnClickListener(openFaceGallery)
+        recent1.setOnClickListener(openFaceGallery)
+        // Top-right framing button opens the framing gallery; the bottom-left shutter captures.
+        findViewById<ImageButton>(R.id.framingGalleryButton).setOnClickListener {
+            startActivity(Intent(this, FramingGalleryActivity::class.java))
         }
-        // Framing button: tap = arm/disarm capture (icon turns cyan when armed), long-press = gallery.
-        val framingBtn = findViewById<ImageButton>(R.id.framingGalleryButton)
-        framingBtn.setOnClickListener {
-            framingArmed = !framingArmed
-            if (framingArmed) framingBtn.setColorFilter(Color.parseColor("#22d3ee")) else framingBtn.clearColorFilter()
-            Toast.makeText(this, if (framingArmed) "Framing capture ON" else "Framing capture OFF", Toast.LENGTH_SHORT).show()
-        }
-        framingBtn.setOnLongClickListener {
-            startActivity(Intent(this, FramingGalleryActivity::class.java)); true
-        }
+        findViewById<ImageButton>(R.id.snapshotButton).setOnClickListener { captureSnapshot() }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -236,8 +232,8 @@ class MainActivity : AppCompatActivity() {
             } else {
                 null
             }
-            // Auto-capture the framed square (full-res snapshot, cooldown-gated) while armed + framing.
-            if (quad != null) maybeCaptureFraming(quad)
+            // Remember the current frame quad so the bottom-left shutter can capture it.
+            lastQuad = quad
             val ms = (System.nanoTime() - t0) / 1_000_000f
 
             val w = upright.width
@@ -414,25 +410,27 @@ class MainActivity : AppCompatActivity() {
             val leaving = recentBmp1     // bitmap scrolling out of the second slot
             recentBmp1 = recentBmp0      // old newest shifts to the second slot
             recentBmp0 = aligned
-            recent0.setImageBitmap(recentBmp0)
+            recent0.setImageDrawable(circular(aligned))
             recent0.visibility = View.VISIBLE
-            recentBmp1?.let { recent1.setImageBitmap(it); recent1.visibility = View.VISIBLE }
+            recentBmp1?.let { recent1.setImageDrawable(circular(it)); recent1.visibility = View.VISIBLE }
             leaving?.recycle()           // safe: its ImageView was just reassigned above
             lastRecentId = identityId
         }
     }
 
-    /** Armed + framing held: take a FULL-RES snapshot and crop the framed square out of it. */
-    private fun maybeCaptureFraming(quad: FloatArray) {
-        if (!framingArmed) return
-        val ic = imageCapture ?: return
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastFramingMs < FRAMING_COOLDOWN_MS) return
+    /** Wrap a bitmap in a circular drawable for the round recent-face thumbnails. */
+    private fun circular(bmp: Bitmap) =
+        RoundedBitmapDrawableFactory.create(resources, bmp).apply { isCircular = true }
+
+    /** Shutter: take a full-res snapshot — the framed square if a frame is active, else the whole frame. */
+    private fun captureSnapshot() {
+        val ic = imageCapture ?: run {
+            Toast.makeText(this, "Camera not ready yet.", Toast.LENGTH_SHORT).show(); return
+        }
         if (!capturing.compareAndSet(false, true)) return // a shot is already in flight
-        lastFramingMs = now
-        val q = quad.copyOf()
+        val q = lastQuad?.copyOf() // null -> capture the full frame
         val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
-        overlay.post { overlay.flashCapture() } // immediate shutter feedback
+        overlay.flashCapture() // on the UI thread (button click)
         ic.takePicture(captureExecutor, object : ImageCapture.OnImageCapturedCallback() {
             override fun onCaptureSuccess(image: ImageProxy) {
                 val rot = image.imageInfo.rotationDegrees
@@ -445,41 +443,42 @@ class MainActivity : AppCompatActivity() {
                 try {
                     saveFramingShot(bytes, rot, q, mirror)
                 } catch (e: Throwable) { // includes OutOfMemoryError from decoding a full-res JPEG
-                    Log.e(TAG, "framing save failed", e)
+                    Log.e(TAG, "snapshot save failed", e)
                 } finally {
                     capturing.set(false)
                 }
             }
 
             override fun onError(e: ImageCaptureException) {
-                Log.e(TAG, "framing capture failed", e)
+                Log.e(TAG, "snapshot capture failed", e)
                 capturing.set(false)
             }
         })
     }
 
     /**
-     * Decode the full-res JPEG, rotate it upright (so the frame-normalized quad maps directly — both
-     * use cases are pinned to 4:3, same FOV/aspect as the analysis frame), crop the framed square,
-     * and mirror it for the front camera. Runs on [captureExecutor], off the analysis thread.
+     * Decode the full-res JPEG, rotate it upright (both use cases are pinned to 4:3, same FOV/aspect
+     * as the analysis frame, so a frame-normalized quad maps directly). Crop the framed square when a
+     * quad is given, else keep the whole frame; mirror it for the front camera. Runs on
+     * [captureExecutor], off the analysis thread.
      */
-    private fun saveFramingShot(jpeg: ByteArray, rotationDegrees: Int, quad: FloatArray, mirror: Boolean) {
-        var full = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return
+    private fun saveFramingShot(jpeg: ByteArray, rotationDegrees: Int, quad: FloatArray?, mirror: Boolean) {
+        var upright = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return
         if (rotationDegrees != 0) {
             val m = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
-            val r = Bitmap.createBitmap(full, 0, 0, full.width, full.height, m, true)
-            if (r != full) full.recycle()
-            full = r
+            val r = Bitmap.createBitmap(upright, 0, 0, upright.width, upright.height, m, true)
+            if (r != upright) upright.recycle()
+            upright = r
         }
-        val crop = squareCropFromQuad(full, quad)
-        full.recycle()
-        if (crop == null) return
+        // Framed square when a frame is active; otherwise the whole frame.
+        val region = (quad?.let { squareCropFromQuad(upright, it) }) ?: upright
+        if (region !== upright) upright.recycle()
         // Front camera preview is mirrored, so mirror the saved shot to match what the user saw.
         val shot = if (mirror) {
             val m = Matrix().apply { preScale(-1f, 1f) }
-            Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, m, false).also { if (it != crop) crop.recycle() }
+            Bitmap.createBitmap(region, 0, 0, region.width, region.height, m, false).also { if (it !== region) region.recycle() }
         } else {
-            crop
+            region
         }
         framingGallery.save(shot, System.currentTimeMillis())
         shot.recycle()
@@ -537,7 +536,6 @@ class MainActivity : AppCompatActivity() {
         private const val EDGE_MARGIN = 0.015f   // reject faces whose box hugs the L/R frame edge (half face)
         private const val MAX_YAW = 0.55f        // nose-offset / eye-distance ceiling (above = too side-on)
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
-        private const val FRAMING_COOLDOWN_MS = 5000L // wait this long between framing captures
-        private const val FRAMING_PAD = 0.15f         // padding added around the framed bbox
+        private const val FRAMING_PAD = 0.15f    // padding added around the framed bbox
     }
 }

@@ -8,9 +8,10 @@ button flips front/back camera. Both are icon-only.
 **Framing gesture:** when **both hands** make the "L" (thumb-index) pose, the app auto-detects
 it (a rotation/flip-invariant landmark MLP, `l_gesture.tflite`) and draws a **quadrilateral**
 from the two hands' thumb+index tips, **darkening everything outside** it. No button — it's
-gesture-triggered. The **top-right framing button** arms capture (tap to toggle; icon turns
-cyan): while armed and framing, it snapshots the framed square (bbox→square→15% pad) into a
-**framing gallery** every 5 s with a shutter flash. **Long-press** that button to open the gallery.
+gesture-triggered. A **bottom-left shutter** button captures the framed square (a full-res
+`ImageCapture` JPEG — bbox→square→15% pad, or the whole frame if you're not framing) into a
+**framing gallery** with a shutter flash; the **top-right framing button** opens that gallery.
+Tapping a (round) recent-face thumbnail at top-left opens the face gallery too.
 
 **Face recognition (passive):** every detected face is recognized on-device and labelled live.
 Detect → IoU-track → (on a new / lost-and-found / stale track) 5-point align → embed → match.
