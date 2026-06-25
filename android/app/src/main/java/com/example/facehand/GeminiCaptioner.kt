@@ -22,10 +22,11 @@ object GeminiCaptioner {
     /** "gemini-2.5-flash" (balanced) or "gemini-2.5-flash-lite" (lowest latency). */
     private const val MODEL = "gemini-2.5-flash"
 
-    // For Traditional Chinese, change to e.g. "用一句自然的話描述這張照片裡有什麼，給看不見的人聽，直接說重點。"
+    // For another language, rewrite this prompt (and set the matching TTS locale in MainActivity).
     private const val PROMPT =
         "Describe what is in this photo in one short, natural sentence for a person who cannot " +
-        "see it. Name the main objects/people and the scene. No preamble, just the sentence."
+        "see it. Name the main objects/people and the scene. Ignore any hands that are framing " +
+        "the shot. No preamble, just the sentence."
 
     val isConfigured: Boolean get() = API_KEY.isNotBlank()
 

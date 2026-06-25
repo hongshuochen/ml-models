@@ -39,7 +39,20 @@ class FramingGalleryActivity : AppCompatActivity() {
         val pad = (12 * d).toInt()
 
         header = TextView(this).apply {
-            setTextColor(Color.WHITE); textSize = 18f; setPadding(pad, pad, pad, pad)
+            setTextColor(Color.WHITE); textSize = 16f; setPadding(pad, pad, pad, pad)
+        }
+        val clearBtn = TextView(this).apply {
+            text = "Clear all"
+            setTextColor(Color.parseColor("#ef4444"))
+            textSize = 15f; isClickable = true
+            setPadding(pad, pad, pad, pad)
+            setOnClickListener { confirmClearAll() }
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(header, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(clearBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val grid = GridView(this).apply {
             numColumns = 2
@@ -54,7 +67,7 @@ class FramingGalleryActivity : AppCompatActivity() {
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0b0f17"))
-            addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(headerRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         })
     }
@@ -102,6 +115,16 @@ class FramingGalleryActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("Delete this shot?")
             .setPositiveButton("Delete") { _, _ -> gallery.delete(f); refresh() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmClearAll() {
+        if (items.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle("Clear all ${items.size} shots?")
+            .setMessage("Removes every framing shot and its description.")
+            .setPositiveButton("Clear all") { _, _ -> gallery.clear(); refresh() }
             .setNegativeButton("Cancel", null)
             .show()
     }

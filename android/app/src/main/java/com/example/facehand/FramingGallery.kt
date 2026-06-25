@@ -47,6 +47,11 @@ class FramingGallery private constructor(context: Context) {
         File(dir, f.nameWithoutExtension + ".txt").delete() // its caption sidecar, if any
     }
 
+    /** Remove every framing shot (and caption sidecar). */
+    @Synchronized fun clear() {
+        dir.listFiles()?.forEach { it.delete() }
+    }
+
     companion object {
         @Volatile private var INSTANCE: FramingGallery? = null
         fun get(context: Context): FramingGallery =
