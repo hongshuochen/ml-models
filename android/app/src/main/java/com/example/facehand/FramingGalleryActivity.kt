@@ -2,6 +2,7 @@ package com.example.facehand
 
 import android.app.AlertDialog
 import android.app.Dialog
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -70,14 +71,27 @@ class FramingGalleryActivity : AppCompatActivity() {
     /** Full-screen viewer for one shot; tap anywhere to dismiss. */
     private fun showFull(f: File) {
         val bmp = BitmapFactory.decodeFile(f.path) ?: return
+        val pad = (16 * resources.displayMetrics.density).toInt()
         val img = ImageView(this).apply {
             setImageBitmap(bmp)
             scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        val caption = TextView(this).apply {
+            text = gallery.caption(f) ?: "(no description yet)"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(pad, pad, pad, pad)
+            setBackgroundColor(Color.parseColor("#CC000000"))
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
+            addView(img, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(caption, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen).apply {
-            setContentView(img)
-            img.setOnClickListener { dismiss() }
+            setContentView(root)
+            root.setOnClickListener { dismiss() }
             setOnDismissListener { img.setImageDrawable(null); bmp.recycle() }
             window?.setBackgroundDrawable(ColorDrawable(Color.BLACK))
             show()
@@ -118,9 +132,18 @@ class FramingGalleryActivity : AppCompatActivity() {
                 })
             }
             val f = items[pos]
-            frame.findViewById<ImageView>(android.R.id.icon).setImageBitmap(BitmapFactory.decodeFile(f.path))
+            frame.findViewById<ImageView>(android.R.id.icon).setImageBitmap(decodeThumb(f.path, cell))
             frame.findViewById<TextView>(deleteBtnId).setOnClickListener { confirmDelete(f) }
             return frame
+        }
+
+        /** Decode a grid thumbnail down-scaled to ~[reqPx] (the shots are megapixel-sized). */
+        private fun decodeThumb(path: String, reqPx: Int): Bitmap? {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= reqPx && bounds.outHeight / (sample * 2) >= reqPx) sample *= 2
+            return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
         }
     }
 }

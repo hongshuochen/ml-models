@@ -12,7 +12,10 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.media.MediaActionSound
 import android.os.Bundle
-import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import android.view.View
 import android.widget.ImageButton
@@ -32,6 +35,8 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.RoundedBitmapDrawableFactory
+import java.io.ByteArrayOutputStream
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -84,12 +89,19 @@ class MainActivity : AppCompatActivity() {
     // Framing capture: when the two-hand "L" frame is active, snapshot the framed square
     // (with padding) into the framing gallery, then cool down before the next shot.
     private lateinit var framingGallery: FramingGallery
-    @Volatile private var lastFramingMs = 0L           // cooldown clock between auto framing captures
     private lateinit var framingThumb: ImageView       // bottom-left round preview of the latest framing shot
     private var framingThumbBmp: Bitmap? = null
     private var imageCapture: ImageCapture? = null     // full-res snapshot use case (null if unsupported)
-    private val capturing = AtomicBoolean(false)       // guards against overlapping takePicture calls
     private val shutterSound = MediaActionSound()      // camera shutter click on capture
+
+    // Caption + narration: a framing shot is captioned by Gemini and read aloud by TTS. `processing`
+    // is an atomic gate held for the WHOLE capture -> caption -> speak cycle (it subsumes the old
+    // takePicture guard), so the next frame can't fire until narration finishes.
+    private var tts: TextToSpeech? = null
+    @Volatile private var ttsReady = false
+    private val processing = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var narrationGen = 0 // generation token so a stale watchdog can't unlock a newer one
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -130,6 +142,19 @@ class MainActivity : AppCompatActivity() {
         framingThumb = findViewById(R.id.framingThumb)
         framingThumb.setOnClickListener(openFramingGallery)
         shutterSound.load(MediaActionSound.SHUTTER_CLICK)
+        // On-device TTS for reading the Gemini caption aloud. (For Chinese: Locale.TRADITIONAL_CHINESE
+        // + a Chinese prompt in GeminiCaptioner — needs a Chinese TTS voice installed on the device.)
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts?.language = Locale.ENGLISH
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {}
+                    override fun onDone(utteranceId: String?) { processing.set(false) } // unlock next framing
+                    @Deprecated("required override") override fun onError(utteranceId: String?) { processing.set(false) }
+                })
+                ttsReady = true
+            }
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -428,13 +453,14 @@ class MainActivity : AppCompatActivity() {
     private fun circular(bmp: Bitmap) =
         RoundedBitmapDrawableFactory.create(resources, bmp).apply { isCircular = true }
 
-    /** While the two-hand frame is held, auto-capture a full-res framed snapshot (cooldown-gated). */
+    /**
+     * While the two-hand frame is held, auto-capture a full-res framed snapshot — but only once the
+     * previous shot has finished being captioned + narrated ([processing] gate), so descriptions
+     * don't pile up.
+     */
     private fun maybeAutoCapture(quad: FloatArray) {
         val ic = imageCapture ?: return
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastFramingMs < FRAMING_COOLDOWN_MS) return
-        if (!capturing.compareAndSet(false, true)) return // a shot is already in flight
-        lastFramingMs = now
+        if (!processing.compareAndSet(false, true)) return // busy capturing / describing / narrating
         val q = quad.copyOf()
         val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
         shutterSound.play(MediaActionSound.SHUTTER_CLICK)
@@ -448,48 +474,82 @@ class MainActivity : AppCompatActivity() {
                     image.close() // release the capture buffer before the heavy decode
                 }
                 try {
-                    saveFramingShot(bytes, rot, q, mirror)
+                    processShot(bytes, rot, q, mirror)
                 } catch (e: Throwable) { // includes OutOfMemoryError from decoding a full-res JPEG
-                    Log.e(TAG, "framing save failed", e)
-                } finally {
-                    capturing.set(false)
+                    Log.e(TAG, "framing process failed", e)
+                    processing.set(false)
                 }
             }
 
             override fun onError(e: ImageCaptureException) {
                 Log.e(TAG, "framing capture failed", e)
-                capturing.set(false)
+                processing.set(false)
             }
         })
+    }
+
+    /** On [captureExecutor]: build the framed shot, save it, caption it via Gemini, then narrate it. */
+    private fun processShot(jpeg: ByteArray, rot: Int, quad: FloatArray, mirror: Boolean) {
+        val shot = buildShot(jpeg, rot, quad, mirror) ?: run { processing.set(false); return }
+        val file = framingGallery.save(shot, System.currentTimeMillis())
+        pushFramingThumb(shot)
+        val upload = encodeJpeg(shot, GEMINI_MAX_SIDE) // a down-scaled copy for the API
+        shot.recycle()
+        val caption = GeminiCaptioner.caption(upload) // blocking network call (we're off the UI thread)
+        if (caption != null && file != null) {
+            framingGallery.saveCaption(file, caption)
+            speak(caption) // TTS onDone -> processing cleared (unlocks the next framing)
+        } else {
+            processing.set(false) // no key / network error -> just unlock
+        }
+    }
+
+    /** Speak the caption; if TTS isn't available or fails, unlock immediately so framing isn't stuck. */
+    private fun speak(text: String) {
+        val t = tts
+        if (t == null || !ttsReady) { processing.set(false); return }
+        val gen = ++narrationGen
+        if (t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "framing-$gen") != TextToSpeech.SUCCESS) {
+            processing.set(false); return // failed to enqueue -> don't lock
+        }
+        // Safety net: never stay locked > 30s if onDone is somehow never delivered for this utterance.
+        mainHandler.postDelayed({ if (narrationGen == gen) processing.set(false) }, 30_000)
     }
 
     /**
      * Decode the full-res JPEG, rotate it upright (both use cases are pinned to 4:3, same FOV/aspect
      * as the analysis frame, so a frame-normalized quad maps directly). Crop the framed square when a
-     * quad is given, else keep the whole frame; mirror it for the front camera. Runs on
-     * [captureExecutor], off the analysis thread.
+     * quad is given, else keep the whole frame; mirror it for the front camera. Returns the final
+     * bitmap (caller owns it). Runs on [captureExecutor], off the analysis thread.
      */
-    private fun saveFramingShot(jpeg: ByteArray, rotationDegrees: Int, quad: FloatArray?, mirror: Boolean) {
-        var upright = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return
+    private fun buildShot(jpeg: ByteArray, rotationDegrees: Int, quad: FloatArray?, mirror: Boolean): Bitmap? {
+        var upright = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return null
         if (rotationDegrees != 0) {
             val m = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
             val r = Bitmap.createBitmap(upright, 0, 0, upright.width, upright.height, m, true)
             if (r != upright) upright.recycle()
             upright = r
         }
-        // Framed square when a frame is active; otherwise the whole frame.
         val region = (quad?.let { squareCropFromQuad(upright, it) }) ?: upright
         if (region !== upright) upright.recycle()
         // Front camera preview is mirrored, so mirror the saved shot to match what the user saw.
-        val shot = if (mirror) {
+        return if (mirror) {
             val m = Matrix().apply { preScale(-1f, 1f) }
             Bitmap.createBitmap(region, 0, 0, region.width, region.height, m, false).also { if (it !== region) region.recycle() }
         } else {
             region
         }
-        framingGallery.save(shot, System.currentTimeMillis())
-        pushFramingThumb(shot)
-        shot.recycle()
+    }
+
+    /** JPEG-encode a down-scaled copy of the shot (max side [maxSide]) for the caption upload. */
+    private fun encodeJpeg(bmp: Bitmap, maxSide: Int): ByteArray {
+        val scale = min(1f, maxSide.toFloat() / max(bmp.width, bmp.height))
+        val scaled = if (scale < 1f)
+            Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
+        val out = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 88, out)
+        if (scaled !== bmp) scaled.recycle()
+        return out.toByteArray()
     }
 
     /** Update the bottom-left round thumbnail with the latest framing shot. */
@@ -540,6 +600,8 @@ class MainActivity : AppCompatActivity() {
         analysisExecutor.shutdown()
         captureExecutor.shutdown()
         shutterSound.release()
+        tts?.stop()
+        tts?.shutdown()
         detector.close()
         handReg.close()
         faceReg.close()
@@ -558,7 +620,7 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_YAW = 0.55f        // nose-offset / eye-distance ceiling (above = too side-on)
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
         private const val FRAMING_PAD = 0.15f    // padding added around the framed bbox
-        private const val FRAMING_COOLDOWN_MS = 5000L // min gap between auto framing captures
         private const val FRAMING_THUMB_PX = 160 // bottom-left preview thumbnail resolution
+        private const val GEMINI_MAX_SIDE = 1024 // down-scale the caption upload to this max side
     }
 }

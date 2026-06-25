@@ -9,10 +9,13 @@ button flips front/back camera. Both are icon-only.
 it (a rotation/flip-invariant landmark MLP, `l_gesture.tflite`) and draws a **quadrilateral**
 from the two hands' thumb+index tips, **darkening everything outside** it. No button — it's
 gesture-triggered. While framing, the app **auto-captures** the framed square (a full-res
-`ImageCapture` JPEG — bbox→square→15% pad) into a **framing gallery** every 5 s, with a shutter
-sound. The **bottom-left** is a round framing-gallery button (a placeholder icon until the first
-shot, then the latest framing thumbnail); tap it (or the **top-right framing button**) to open the
-framing gallery. Tapping a round recent-face thumbnail at top-left opens the face gallery.
+`ImageCapture` JPEG — bbox→square→15% pad), sends it to the **Gemini API** (`gemini-2.5-flash`) for
+a one-sentence description, saves it to a **framing gallery**, and **reads the description aloud**
+(on-device `TextToSpeech`) — the next capture waits until narration finishes. A shutter sound plays
+on each capture. Set your key in `GeminiCaptioner.API_KEY`; until then captioning no-ops (capture
+still works). The **bottom-left** round button (placeholder icon → latest framing thumbnail) and the
+**top-right framing button** open the framing gallery; tapping a shot shows the image + its caption.
+Tapping a round recent-face thumbnail at top-left opens the face gallery.
 
 **Face recognition (passive):** every detected face is recognized on-device and labelled live.
 Detect → IoU-track → (on a new / lost-and-found / stale track) 5-point align → embed → match.
