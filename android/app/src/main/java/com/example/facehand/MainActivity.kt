@@ -67,6 +67,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var embedder: FaceEmbedder
     private val aligner = FaceAligner()
     private val faceTracker = FaceTracker()
+    private val sharpBuf = IntArray(FaceEmbedder.SIZE * FaceEmbedder.SIZE)  // reused pixels for the blur check
+    private val sharpGray = IntArray(FaceEmbedder.SIZE * FaceEmbedder.SIZE) // reused luma buffer
 
     // The two most-recently-seen faces shown under the gallery button.
     private lateinit var recent0: ImageView
@@ -331,19 +333,50 @@ class MainActivity : AppCompatActivity() {
     /** Align the face, embed it, and match/enroll into the gallery; updates the track + thumbnails. */
     private fun identify(track: FaceTracker.Track, upright: Bitmap, kp5: FloatArray) {
         val aligned = aligner.align(upright, kp5) ?: return
+        // Skip blurry frames — they make bad embeddings (duplicates) and ugly thumbnails. Don't
+        // mark embedded, so the track keeps trying until a sharp frame arrives.
+        if (sharpness(aligned) < SHARP_MIN) { aligned.recycle(); return }
         val emb = embedder.embed(aligned)
         faceTracker.markEmbedded(track)
         val m = gallery.match(emb)
-        val person = if (m != null && m.second >= RECOG_THRESHOLD) {
-            gallery.reinforce(m.first, emb, aligned) // known face -> refine its template
-            track.sim = m.second
-            m.first
-        } else {
-            track.sim = 1f                            // new face -> enroll it
-            gallery.enroll(emb, aligned)
+        val best = m?.second ?: -1f
+        val person = when {
+            // Confident match -> refine that identity's template.
+            m != null && best >= RECOG_THRESHOLD -> { gallery.reinforce(m.first, emb, aligned); track.sim = best; m.first }
+            // Clearly nobody (well below any same-person score) AND not yet recognized -> enroll new.
+            track.identityId < 0 && best < ENROLL_MARGIN -> { track.sim = 1f; gallery.enroll(emb, aligned) }
+            // Gray zone (0.25-0.30) or a recognized track's off frame -> don't duplicate; keep state.
+            else -> { aligned.recycle(); return }
         }
         track.identityId = person.id
         pushRecent(aligned, person.id)
+    }
+
+    /** Variance-of-Laplacian sharpness of the aligned 112x112 face — low value = blurry. */
+    private fun sharpness(aligned: Bitmap): Double {
+        val n = aligned.width
+        val h = aligned.height
+        val total = n * h
+        if (total > sharpBuf.size) return Double.MAX_VALUE // aligned is 112x112; safety only
+        aligned.getPixels(sharpBuf, 0, n, 0, 0, n, h)
+        val g = sharpGray
+        for (i in 0 until total) {
+            val p = sharpBuf[i]
+            g[i] = ((p shr 16 and 0xFF) * 77 + (p shr 8 and 0xFF) * 150 + (p and 0xFF) * 29) shr 8 // luma 0..255
+        }
+        var sum = 0.0
+        var sumSq = 0.0
+        var cnt = 0
+        for (y in 1 until h - 1) {
+            var i = y * n + 1
+            for (x in 1 until n - 1) {
+                val lap = (4 * g[i] - g[i - 1] - g[i + 1] - g[i - n] - g[i + n]).toDouble()
+                sum += lap; sumSq += lap * lap; cnt++; i++
+            }
+        }
+        if (cnt == 0) return 0.0
+        val mean = sum / cnt
+        return sumSq / cnt - mean * mean
     }
 
     /** Only embed confident, big-enough faces — tiny/low-score crops spawn bogus identities. */
@@ -479,8 +512,11 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "FaceHandDetector"
         private const val RECOG_THRESHOLD = 0.3f // cosine; verified: different-person never exceeds 0.21
+        private const val ENROLL_MARGIN = 0.25f  // enroll a NEW id only if best match < this (between
+                                                 // different-person max 0.21 and same-person min 0.26)
         private const val RECOG_MIN_SCORE = 0.6f // detector confidence gate before embedding
         private const val MIN_FACE_FRAC = 0.07f  // min face-box side as a fraction of the frame
+        private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
         private const val FRAMING_COOLDOWN_MS = 5000L // wait this long between framing captures
         private const val FRAMING_PAD = 0.15f         // padding added around the framed bbox
     }
