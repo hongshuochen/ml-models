@@ -10,7 +10,9 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.RectF
+import android.media.MediaActionSound
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.widget.ImageButton
@@ -82,9 +84,12 @@ class MainActivity : AppCompatActivity() {
     // Framing capture: when the two-hand "L" frame is active, snapshot the framed square
     // (with padding) into the framing gallery, then cool down before the next shot.
     private lateinit var framingGallery: FramingGallery
-    @Volatile private var lastQuad: FloatArray? = null // latest framing quad (for the snapshot button)
+    @Volatile private var lastFramingMs = 0L           // cooldown clock between auto framing captures
+    private lateinit var framingThumb: ImageView       // bottom-left round preview of the latest framing shot
+    private var framingThumbBmp: Bitmap? = null
     private var imageCapture: ImageCapture? = null     // full-res snapshot use case (null if unsupported)
     private val capturing = AtomicBoolean(false)       // guards against overlapping takePicture calls
+    private val shutterSound = MediaActionSound()      // camera shutter click on capture
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -119,11 +124,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.galleryButton).setOnClickListener(openFaceGallery)
         recent0.setOnClickListener(openFaceGallery)
         recent1.setOnClickListener(openFaceGallery)
-        // Top-right framing button opens the framing gallery; the bottom-left shutter captures.
-        findViewById<ImageButton>(R.id.framingGalleryButton).setOnClickListener {
-            startActivity(Intent(this, FramingGalleryActivity::class.java))
-        }
-        findViewById<ImageButton>(R.id.snapshotButton).setOnClickListener { captureSnapshot() }
+        // Top-right framing icon OR the bottom-left recent-framing thumbnail opens the framing gallery.
+        val openFramingGallery = View.OnClickListener { startActivity(Intent(this, FramingGalleryActivity::class.java)) }
+        findViewById<ImageButton>(R.id.framingGalleryButton).setOnClickListener(openFramingGallery)
+        framingThumb = findViewById(R.id.framingThumb)
+        framingThumb.setOnClickListener(openFramingGallery)
+        shutterSound.load(MediaActionSound.SHUTTER_CLICK)
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             == PackageManager.PERMISSION_GRANTED
@@ -232,8 +238,8 @@ class MainActivity : AppCompatActivity() {
             } else {
                 null
             }
-            // Remember the current frame quad so the bottom-left shutter can capture it.
-            lastQuad = quad
+            // Auto-capture a full-res framed snapshot while the two-hand frame is held (cooldown-gated).
+            if (quad != null) maybeAutoCapture(quad)
             val ms = (System.nanoTime() - t0) / 1_000_000f
 
             val w = upright.width
@@ -422,15 +428,17 @@ class MainActivity : AppCompatActivity() {
     private fun circular(bmp: Bitmap) =
         RoundedBitmapDrawableFactory.create(resources, bmp).apply { isCircular = true }
 
-    /** Shutter: take a full-res snapshot — the framed square if a frame is active, else the whole frame. */
-    private fun captureSnapshot() {
-        val ic = imageCapture ?: run {
-            Toast.makeText(this, "Camera not ready yet.", Toast.LENGTH_SHORT).show(); return
-        }
+    /** While the two-hand frame is held, auto-capture a full-res framed snapshot (cooldown-gated). */
+    private fun maybeAutoCapture(quad: FloatArray) {
+        val ic = imageCapture ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastFramingMs < FRAMING_COOLDOWN_MS) return
         if (!capturing.compareAndSet(false, true)) return // a shot is already in flight
-        val q = lastQuad?.copyOf() // null -> capture the full frame
+        lastFramingMs = now
+        val q = quad.copyOf()
         val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
-        overlay.flashCapture() // on the UI thread (button click)
+        overlay.post { overlay.flashCapture() } // called from the analysis thread -> post to UI
+        shutterSound.play(MediaActionSound.SHUTTER_CLICK)
         ic.takePicture(captureExecutor, object : ImageCapture.OnImageCapturedCallback() {
             override fun onCaptureSuccess(image: ImageProxy) {
                 val rot = image.imageInfo.rotationDegrees
@@ -443,14 +451,14 @@ class MainActivity : AppCompatActivity() {
                 try {
                     saveFramingShot(bytes, rot, q, mirror)
                 } catch (e: Throwable) { // includes OutOfMemoryError from decoding a full-res JPEG
-                    Log.e(TAG, "snapshot save failed", e)
+                    Log.e(TAG, "framing save failed", e)
                 } finally {
                     capturing.set(false)
                 }
             }
 
             override fun onError(e: ImageCaptureException) {
-                Log.e(TAG, "snapshot capture failed", e)
+                Log.e(TAG, "framing capture failed", e)
                 capturing.set(false)
             }
         })
@@ -481,7 +489,20 @@ class MainActivity : AppCompatActivity() {
             region
         }
         framingGallery.save(shot, System.currentTimeMillis())
+        pushFramingThumb(shot)
         shot.recycle()
+    }
+
+    /** Update the bottom-left round thumbnail with the latest framing shot. */
+    private fun pushFramingThumb(shot: Bitmap) {
+        val thumb = Bitmap.createScaledBitmap(shot, FRAMING_THUMB_PX, FRAMING_THUMB_PX, true)
+        runOnUiThread {
+            val old = framingThumbBmp
+            framingThumbBmp = thumb
+            framingThumb.setImageDrawable(circular(thumb))
+            framingThumb.visibility = View.VISIBLE
+            old?.recycle()
+        }
     }
 
     /** Bounding box of the 4 frame points -> square + padding -> crop (off-image area padded black). */
@@ -519,6 +540,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         analysisExecutor.shutdown()
         captureExecutor.shutdown()
+        shutterSound.release()
         detector.close()
         handReg.close()
         faceReg.close()
@@ -537,5 +559,7 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_YAW = 0.55f        // nose-offset / eye-distance ceiling (above = too side-on)
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
         private const val FRAMING_PAD = 0.15f    // padding added around the framed bbox
+        private const val FRAMING_COOLDOWN_MS = 5000L // min gap between auto framing captures
+        private const val FRAMING_THUMB_PX = 160 // bottom-left preview thumbnail resolution
     }
 }
