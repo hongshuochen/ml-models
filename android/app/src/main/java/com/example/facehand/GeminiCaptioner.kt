@@ -51,7 +51,16 @@ object GeminiCaptioner {
                             ),
                     ),
                 ),
-            ).toString()
+            )
+                // Disable 2.5 "thinking" (a big latency win for plain captioning) + cap the output.
+                .put(
+                    "generationConfig",
+                    JSONObject()
+                        .put("thinkingConfig", JSONObject().put("thinkingBudget", 0))
+                        .put("maxOutputTokens", 60)
+                        .put("temperature", 0.4),
+                )
+                .toString()
 
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"

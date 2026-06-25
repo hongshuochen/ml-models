@@ -628,6 +628,6 @@ class MainActivity : AppCompatActivity() {
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
         private const val FRAMING_PAD = 0.15f    // padding added around the framed bbox
         private const val FRAMING_THUMB_PX = 160 // bottom-left preview thumbnail resolution
-        private const val GEMINI_MAX_SIDE = 1024 // down-scale the caption upload to this max side
+        private const val GEMINI_MAX_SIDE = 768  // single Gemini image tile = faster + cheaper
     }
 }
