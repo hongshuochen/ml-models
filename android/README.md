@@ -8,14 +8,14 @@ button flips front/back camera. Both are icon-only.
 **Framing gesture:** when **both hands** make the "L" (thumb-index) pose, the app auto-detects
 it (a rotation/flip-invariant landmark MLP, `l_gesture.tflite`) and draws a **quadrilateral**
 from the two hands' thumb+index tips, **darkening everything outside** it. No button — it's
-gesture-triggered. While framing, the app **auto-captures** the framed square (a full-res
-`ImageCapture` JPEG — bbox→square→15% pad), sends it to the **Gemini API** (`gemini-2.5-flash`) for
-a one-sentence description, saves it to a **framing gallery**, and **reads the description aloud**
-(on-device `TextToSpeech`) — the next capture waits until narration finishes. A shutter sound plays
-on each capture. Set your key in `GeminiCaptioner.API_KEY`; until then captioning no-ops (capture
-still works). The **bottom-left** round button (placeholder icon → latest framing thumbnail) and the
-**top-right framing button** open the framing gallery; tapping a shot shows the image + its caption.
-Tapping a round recent-face thumbnail at top-left opens the face gallery.
+gesture-triggered. The **top-right framing button toggles auto-describe** (cyan when on): while it's
+on and you're framing, the app **auto-captures** the framed square (a full-res `ImageCapture` JPEG —
+bbox→square→15% pad), sends it to the **Gemini API** (`gemini-2.5-flash`) for a one-sentence
+description, saves it to a **framing gallery**, and **reads it aloud** (on-device `TextToSpeech`) —
+the next capture waits until narration finishes, and a shutter sound plays on each. Set your key in
+`GeminiCaptioner.API_KEY`. The **bottom-left** round thumbnail (placeholder icon → latest shot) opens
+the framing gallery; tapping a shot shows the image + its caption. Tapping a round recent-face
+thumbnail at top-left opens the face gallery.
 
 **Face recognition (passive):** every detected face is recognized on-device and labelled live.
 Detect → IoU-track → (on a new / lost-and-found / stale track) 5-point align → embed → match.

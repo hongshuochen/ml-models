@@ -99,6 +99,7 @@ class MainActivity : AppCompatActivity() {
     // takePicture guard), so the next frame can't fire until narration finishes.
     private var tts: TextToSpeech? = null
     @Volatile private var ttsReady = false
+    @Volatile private var describeEnabled = false // top-right toggle: auto caption + narrate while framing
     private val processing = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile private var narrationGen = 0 // generation token so a stale watchdog can't unlock a newer one
@@ -136,11 +137,16 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.galleryButton).setOnClickListener(openFaceGallery)
         recent0.setOnClickListener(openFaceGallery)
         recent1.setOnClickListener(openFaceGallery)
-        // Top-right framing icon OR the bottom-left recent-framing thumbnail opens the framing gallery.
-        val openFramingGallery = View.OnClickListener { startActivity(Intent(this, FramingGalleryActivity::class.java)) }
-        findViewById<ImageButton>(R.id.framingGalleryButton).setOnClickListener(openFramingGallery)
+        // Top-right framing button TOGGLES auto-describe (capture -> Gemini caption -> TTS narration).
+        val framingBtn = findViewById<ImageButton>(R.id.framingGalleryButton)
+        framingBtn.setOnClickListener {
+            describeEnabled = !describeEnabled
+            if (describeEnabled) framingBtn.setColorFilter(Color.parseColor("#22d3ee")) else framingBtn.clearColorFilter()
+            Toast.makeText(this, if (describeEnabled) "Framing describe ON" else "Framing describe OFF", Toast.LENGTH_SHORT).show()
+        }
+        // The bottom-left recent-framing thumbnail opens the framing gallery.
         framingThumb = findViewById(R.id.framingThumb)
-        framingThumb.setOnClickListener(openFramingGallery)
+        framingThumb.setOnClickListener { startActivity(Intent(this, FramingGalleryActivity::class.java)) }
         shutterSound.load(MediaActionSound.SHUTTER_CLICK)
         // On-device TTS for reading the Gemini caption aloud. (For Chinese: Locale.TRADITIONAL_CHINESE
         // + a Chinese prompt in GeminiCaptioner — needs a Chinese TTS voice installed on the device.)
@@ -459,6 +465,7 @@ class MainActivity : AppCompatActivity() {
      * don't pile up.
      */
     private fun maybeAutoCapture(quad: FloatArray) {
+        if (!describeEnabled) return // top-right toggle is off
         val ic = imageCapture ?: return
         if (!processing.compareAndSet(false, true)) return // busy capturing / describing / narrating
         val q = quad.copyOf()
