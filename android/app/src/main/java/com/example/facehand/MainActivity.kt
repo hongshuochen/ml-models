@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
     // (with padding) into the framing gallery, then cool down before the next shot.
     private lateinit var framingGallery: FramingGallery
     @Volatile private var lastFramingMs = 0L
+    @Volatile private var framingArmed = false // capture only when the toggle is on
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -102,8 +103,15 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.galleryButton).setOnClickListener {
             startActivity(Intent(this, GalleryActivity::class.java))
         }
-        findViewById<ImageButton>(R.id.framingGalleryButton).setOnClickListener {
-            startActivity(Intent(this, FramingGalleryActivity::class.java))
+        // Framing button: tap = arm/disarm capture (icon turns cyan when armed), long-press = gallery.
+        val framingBtn = findViewById<ImageButton>(R.id.framingGalleryButton)
+        framingBtn.setOnClickListener {
+            framingArmed = !framingArmed
+            if (framingArmed) framingBtn.setColorFilter(Color.parseColor("#22d3ee")) else framingBtn.clearColorFilter()
+            Toast.makeText(this, if (framingArmed) "Framing capture ON" else "Framing capture OFF", Toast.LENGTH_SHORT).show()
+        }
+        framingBtn.setOnLongClickListener {
+            startActivity(Intent(this, FramingGalleryActivity::class.java)); true
         }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -334,6 +342,7 @@ class MainActivity : AppCompatActivity() {
 
     /** While the two-hand frame is held, snapshot the framed square into the gallery (cooldown-gated). */
     private fun maybeCaptureFraming(upright: Bitmap, quad: FloatArray) {
+        if (!framingArmed) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastFramingMs < FRAMING_COOLDOWN_MS) return
         val crop = squareCropFromQuad(upright, quad) ?: return
