@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
@@ -20,12 +21,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.min
 
@@ -42,6 +48,9 @@ class MainActivity : AppCompatActivity() {
 
     // Single background thread for inference so the camera/UI thread is never blocked.
     private val analysisExecutor = Executors.newSingleThreadExecutor()
+
+    // Separate thread for full-res framing captures, so decoding a big JPEG never stalls analysis.
+    private val captureExecutor = Executors.newSingleThreadExecutor()
 
     // Selected lens — toggled by the Flip button. Front (selfie) by default; preview mirrored.
     private var lensFacing = CameraSelector.LENS_FACING_FRONT
@@ -70,7 +79,9 @@ class MainActivity : AppCompatActivity() {
     // (with padding) into the framing gallery, then cool down before the next shot.
     private lateinit var framingGallery: FramingGallery
     @Volatile private var lastFramingMs = 0L
-    @Volatile private var framingArmed = false // capture only when the toggle is on
+    @Volatile private var framingArmed = false  // capture only when the toggle is on
+    private var imageCapture: ImageCapture? = null     // full-res snapshot use case (null if unsupported)
+    private val capturing = AtomicBoolean(false)       // guards against overlapping takePicture calls
 
     private val cameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -142,17 +153,37 @@ class MainActivity : AppCompatActivity() {
         val preview = Preview.Builder().build().also {
             it.setSurfaceProvider(previewView.surfaceProvider)
         }
+        // Pin both use cases to 4:3 so the analysis frame and the full-res JPEG share FOV + aspect
+        // (a frame-normalized quad then maps directly onto the captured image — no offset).
+        val ratio43 = ResolutionSelector.Builder()
+            .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+            .build()
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .setResolutionSelector(ratio43)
             .build()
             .also { it.setAnalyzer(analysisExecutor, ::analyze) }
+        // Full-res snapshot use case for framing capture (latency-optimized for repeated shots).
+        val capture = ImageCapture.Builder()
+            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setResolutionSelector(ratio43)
+            .build()
         try {
             provider.unbindAll()
-            provider.bindToLifecycle(this, selector, preview, analysis)
+            provider.bindToLifecycle(this, selector, preview, analysis, capture)
+            imageCapture = capture
         } catch (e: Exception) {
-            Log.e(TAG, "Camera bind failed", e)
-            Toast.makeText(this, "Failed to start camera.", Toast.LENGTH_LONG).show()
+            // Some devices can't bind 3 use cases — fall back to preview+analysis (framing capture off).
+            Log.w(TAG, "3-use-case bind failed; retrying without ImageCapture", e)
+            imageCapture = null
+            try {
+                provider.unbindAll()
+                provider.bindToLifecycle(this, selector, preview, analysis)
+            } catch (e2: Exception) {
+                Log.e(TAG, "Camera bind failed", e2)
+                Toast.makeText(this, "Failed to start camera.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -201,8 +232,8 @@ class MainActivity : AppCompatActivity() {
             } else {
                 null
             }
-            // Auto-capture the framed square (with cooldown) while the frame is held.
-            if (quad != null) maybeCaptureFraming(upright, quad)
+            // Auto-capture the framed square (full-res snapshot, cooldown-gated) while armed + framing.
+            if (quad != null) maybeCaptureFraming(quad)
             val ms = (System.nanoTime() - t0) / 1_000_000f
 
             val w = upright.width
@@ -340,15 +371,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** While the two-hand frame is held, snapshot the framed square into the gallery (cooldown-gated). */
-    private fun maybeCaptureFraming(upright: Bitmap, quad: FloatArray) {
+    /** Armed + framing held: take a FULL-RES snapshot and crop the framed square out of it. */
+    private fun maybeCaptureFraming(quad: FloatArray) {
         if (!framingArmed) return
+        val ic = imageCapture ?: return
         val now = SystemClock.elapsedRealtime()
         if (now - lastFramingMs < FRAMING_COOLDOWN_MS) return
-        val crop = squareCropFromQuad(upright, quad) ?: return
+        if (!capturing.compareAndSet(false, true)) return // a shot is already in flight
         lastFramingMs = now
+        val q = quad.copyOf()
+        val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
+        overlay.post { overlay.flashCapture() } // immediate shutter feedback
+        ic.takePicture(captureExecutor, object : ImageCapture.OnImageCapturedCallback() {
+            override fun onCaptureSuccess(image: ImageProxy) {
+                val rot = image.imageInfo.rotationDegrees
+                val bytes = try {
+                    val b = image.planes[0].buffer
+                    ByteArray(b.remaining()).also { b.get(it) }
+                } finally {
+                    image.close() // release the capture buffer before the heavy decode
+                }
+                try {
+                    saveFramingShot(bytes, rot, q, mirror)
+                } catch (e: Throwable) { // includes OutOfMemoryError from decoding a full-res JPEG
+                    Log.e(TAG, "framing save failed", e)
+                } finally {
+                    capturing.set(false)
+                }
+            }
+
+            override fun onError(e: ImageCaptureException) {
+                Log.e(TAG, "framing capture failed", e)
+                capturing.set(false)
+            }
+        })
+    }
+
+    /**
+     * Decode the full-res JPEG, rotate it upright (so the frame-normalized quad maps directly — both
+     * use cases are pinned to 4:3, same FOV/aspect as the analysis frame), crop the framed square,
+     * and mirror it for the front camera. Runs on [captureExecutor], off the analysis thread.
+     */
+    private fun saveFramingShot(jpeg: ByteArray, rotationDegrees: Int, quad: FloatArray, mirror: Boolean) {
+        var full = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return
+        if (rotationDegrees != 0) {
+            val m = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+            val r = Bitmap.createBitmap(full, 0, 0, full.width, full.height, m, true)
+            if (r != full) full.recycle()
+            full = r
+        }
+        val crop = squareCropFromQuad(full, quad)
+        full.recycle()
+        if (crop == null) return
         // Front camera preview is mirrored, so mirror the saved shot to match what the user saw.
-        val shot = if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
+        val shot = if (mirror) {
             val m = Matrix().apply { preScale(-1f, 1f) }
             Bitmap.createBitmap(crop, 0, 0, crop.width, crop.height, m, false).also { if (it != crop) crop.recycle() }
         } else {
@@ -356,7 +432,6 @@ class MainActivity : AppCompatActivity() {
         }
         framingGallery.save(shot, System.currentTimeMillis())
         shot.recycle()
-        overlay.post { overlay.flashCapture() }
     }
 
     /** Bounding box of the 4 frame points -> square + padding -> crop (off-image area padded black). */
@@ -393,6 +468,7 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         analysisExecutor.shutdown()
+        captureExecutor.shutdown()
         detector.close()
         handReg.close()
         faceReg.close()
