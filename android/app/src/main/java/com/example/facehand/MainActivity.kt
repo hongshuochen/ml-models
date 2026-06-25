@@ -571,7 +571,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Bounding box of the 4 frame points -> square + padding -> crop (off-image area padded black). */
+    /** Bounding box of the 4 frame points -> square (no padding) -> crop (off-image area filled black). */
     private fun squareCropFromQuad(upright: Bitmap, quad: FloatArray): Bitmap? {
         val w = upright.width
         val h = upright.height
@@ -582,7 +582,7 @@ class MainActivity : AppCompatActivity() {
         }
         val cx = (minX + maxX) / 2f * w
         val cy = (minY + maxY) / 2f * h
-        val side = (max((maxX - minX) * w, (maxY - minY) * h) * (1f + 2f * FRAMING_PAD)).toInt()
+        val side = max((maxX - minX) * w, (maxY - minY) * h).toInt() // exact framed square, no padding
         if (side < 8) return null
         val x0 = (cx - side / 2f).toInt()
         val y0 = (cy - side / 2f).toInt()
@@ -626,7 +626,6 @@ class MainActivity : AppCompatActivity() {
         private const val EDGE_MARGIN = 0.015f   // reject faces whose box hugs the L/R frame edge (half face)
         private const val MAX_YAW = 0.55f        // nose-offset / eye-distance ceiling (above = too side-on)
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
-        private const val FRAMING_PAD = 0.15f    // padding added around the framed bbox
         private const val FRAMING_THUMB_PX = 160 // bottom-left preview thumbnail resolution
         private const val GEMINI_MAX_SIDE = 768  // single Gemini image tile = faster + cheaper
     }

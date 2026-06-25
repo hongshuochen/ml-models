@@ -10,7 +10,7 @@ it (a rotation/flip-invariant landmark MLP, `l_gesture.tflite`) and draws a **qu
 from the two hands' thumb+index tips, **darkening everything outside** it. No button — it's
 gesture-triggered. The **top-right framing button toggles auto-describe** (cyan when on): while it's
 on and you're framing, the app **auto-captures** the framed square (a full-res `ImageCapture` JPEG —
-bbox→square→15% pad), sends it to the **Gemini API** (`gemini-2.5-flash`) for a one-sentence
+bbox→square, no padding), sends it to the **Gemini API** (`gemini-2.5-flash`) for a one-sentence
 description, saves it to a **framing gallery**, and **reads it aloud** (on-device `TextToSpeech`) —
 the next capture waits until narration finishes, and a shutter sound plays on each. Set your key in
 `GeminiCaptioner.API_KEY`. The **bottom-left** round thumbnail (placeholder icon → latest shot) opens
