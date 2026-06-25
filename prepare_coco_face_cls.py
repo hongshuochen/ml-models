@@ -16,12 +16,13 @@ from insightface.app import FaceAnalysis
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--img-dir", default="datasets/coco_dl/val2017")
+    ap.add_argument("--img-dirs", nargs="+", default=["datasets/coco_dl/val2017"])
     ap.add_argument("--out", default="datasets/coco_face_cls")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--val-frac", type=float, default=0.1)
     ap.add_argument("--min-score", type=float, default=0.5, help="face det_score to count as a face")
-    ap.add_argument("--min-side", type=int, default=20, help="min face box side (px) to count")
+    ap.add_argument("--min-face-frac", type=float, default=0.12,
+                    help="face counts only if its min-side / image-min-dim >= this (small faces -> noface)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -29,7 +30,9 @@ def main():
                        providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
     app.prepare(ctx_id=0, det_size=(640, 640))
 
-    imgs = sorted(Path(args.img_dir).glob("*.jpg"))
+    imgs = []
+    for d in args.img_dirs:
+        imgs += list(Path(d).rglob("*.jpg"))
     random.Random(args.seed).shuffle(imgs)
     if args.limit:
         imgs = imgs[: args.limit]
@@ -44,10 +47,12 @@ def main():
         im = cv2.imread(str(img))
         if im is None:
             continue
+        h, w = im.shape[:2]
+        thr = args.min_face_frac * min(h, w)  # min face side in px for this image
         faces = app.get(im)
         has_face = any(
             f.det_score >= args.min_score
-            and min(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1]) >= args.min_side
+            and min(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1]) >= thr
             for f in faces
         )
         lab = "face" if has_face else "noface"
