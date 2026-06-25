@@ -115,6 +115,23 @@ params, int8 0.25 MB). Same lever applies to the face model (§8) and any pico c
 webcam PCK is vs MediaPipe pseudo-labels (agreement, not true GT); hand-keypoints val is
 true GT. **Compact deploy:** MNv3-small_025 +HaGRID, **int8 0.41 MB**.
 
+### 4c-bis. Back-of-hand (egocentric) — add FreiHAND
+HaGRID gestures are shown **palm-toward-camera**, so the back of the hand (dorsal) is OOD — a
+problem for a head/glasses (egocentric) camera, which mostly sees the **backs** of the hands.
+The deployed head-256 model scored only **PCK@0.1 0.44** on a dorsal val (FreiHAND). Adding
+**FreiHAND** (130k lab images with real 21-joint labels incl. dorsal views; `prepare_freihand.py`,
+project 3D→2D, ~63k mixed in) to the training:
+
+| val | head-256 (no FreiHAND) | **+ FreiHAND (deployed)** |
+|-----|----------------------:|-------------------------:|
+| **dorsal / back-of-hand** (FreiHAND) | 0.440 | **0.819** |
+| webcam / palm (HaGRID) | 0.905 | 0.898 |
+| palm (hand-keypoints) | 0.923 | 0.920 |
+
+Dorsal **0.44 → 0.82** (+0.38), palm essentially unchanged. The L-gesture MLP needs no retrain
+(its pairwise-distance features are mirror-invariant — palm-L ≈ dorsal-L). **Deployed: head-256
++ FreiHAND**, int8 0.25 MB.
+
 ### 4d. Face landmark — 5 points (face alignment)
 MobileNetV3-small_025 regressing the 5 ArcFace points (eyes, nose, mouth corners),
 distilled from InsightFace on 50.9 k HaGRID faces (subject-disjoint; `prepare_hagrid_face.py`;

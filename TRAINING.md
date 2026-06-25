@@ -150,3 +150,21 @@ uv run python train_hand_landmark.py --backbone mobilenetv3_small_025 --no-pretr
 #   then dynamic-range int8 (Optimize.DEFAULT). Deployed: hand 0.25MB, face 0.24MB int8.
 ```
 → hand webcam PCK 0.899→0.905, int8 0.41→0.25MB · face PCK 0.998→0.999, int8 0.38→0.24MB.
+
+## 10. Back-of-hand (egocentric) — add FreiHAND to the hand landmark
+HaGRID is palm-toward-camera, so dorsal (back-of-hand) is OOD — bad for a head/glasses camera.
+Add FreiHAND (real 21-joint labels incl. dorsal). See MODELS_REPORT §4c-bis.
+```bash
+# data: FreiHAND_pub_v2.zip (3.9GB) -> datasets/freihand_raw/ ; convert (project 3D->2D)
+curl -L -o datasets/freihand_raw/FreiHAND_pub_v2.zip \
+  https://lmb.informatik.uni-freiburg.de/data/freihand/FreiHAND_pub_v2.zip
+cd datasets/freihand_raw && unzip -q FreiHAND_pub_v2.zip && cd -
+uv run python prepare_freihand.py --root datasets/freihand_raw --versions 2   # -> datasets/freihand (~63k)
+# retrain hand landmark with FreiHAND mixed in (everything else = §9)
+uv run python train_hand_landmark.py --backbone mobilenetv3_small_025 --no-pretrained \
+  --num-kpts 21 --head-dim 256 --data datasets/hand-keypoints datasets/hagrid-landmark datasets/freihand \
+  --epochs 40 --batch 64 --device cuda --out runs/landmark/hand_landmark_mnv3s025_h256_frei
+# export (same as §9) -> int8 -> assets/hand_landmark.tflite
+```
+→ dorsal PCK **0.44 → 0.82**; palm unchanged (webcam 0.905→0.898, hand-keypoints 0.923→0.920).
+The L-gesture MLP is not retrained (mirror-invariant features).

@@ -36,6 +36,10 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
 - **Landmark head-256 beats head-1024.** MobileNetV3's head conv (→1024, sized for 1000-class ImageNet)
   dominates params at low width; `train_hand_landmark.py --head-dim 256` cuts the int8 model ~38% with
   no accuracy loss (slightly better — mild regularization). Deployed hand/face landmark use head 256.
+- **Back-of-hand is OOD for HaGRID-trained landmarks** (HaGRID gestures are all palm-toward-camera) →
+  dorsal PCK only ~0.44, bad for an egocentric/glasses camera (sees hand *backs*). Fix: mix in FreiHAND
+  (`prepare_freihand.py`, real 21-joint labels incl. dorsal) → dorsal 0.82, palm unchanged. The
+  L-gesture MLP needs no retrain (pairwise-distance features are mirror-invariant; palm-L ≈ dorsal-L).
 - **Face landmarks need a flip_idx swap** on horizontal-flip aug (`--flip-idx 1,0,2,4,3`: swap
   L/R eye & mouth corners); hands stay identity. The same trainer does both via `--num-kpts`.
 - **TFLite int8 export gotchas**: export int8 to a SEPARATE dir (it clobbers f32/f16), use a small
