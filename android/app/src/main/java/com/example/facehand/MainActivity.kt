@@ -32,6 +32,8 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -332,9 +334,11 @@ class MainActivity : AppCompatActivity() {
 
     /** Align the face, embed it, and match/enroll into the gallery; updates the track + thumbnails. */
     private fun identify(track: FaceTracker.Track, upright: Bitmap, kp5: FloatArray) {
+        // Skip profile / half faces — they make bad embeddings (a big duplicate source).
+        if (!frontalOk(kp5, upright.width, upright.height)) return
         val aligned = aligner.align(upright, kp5) ?: return
         // Skip blurry frames — they make bad embeddings (duplicates) and ugly thumbnails. Don't
-        // mark embedded, so the track keeps trying until a sharp frame arrives.
+        // mark embedded, so the track keeps trying until a sharp, frontal frame arrives.
         if (sharpness(aligned) < SHARP_MIN) { aligned.recycle(); return }
         val emb = embedder.embed(aligned)
         faceTracker.markEmbedded(track)
@@ -379,10 +383,24 @@ class MainActivity : AppCompatActivity() {
         return sumSq / cnt - mean * mean
     }
 
-    /** Only embed confident, big-enough faces — tiny/low-score crops spawn bogus identities. */
+    /** Only embed confident, big-enough, fully-in-frame faces — junk crops spawn bogus identities. */
     private fun faceQualityOk(d: Detection): Boolean {
         if (d.score < RECOG_MIN_SCORE) return false
-        return min(d.x2 - d.x1, d.y2 - d.y1) >= MIN_FACE_FRAC
+        if (min(d.x2 - d.x1, d.y2 - d.y1) < MIN_FACE_FRAC) return false
+        // Reject faces hugging the left/right frame edge — likely only half the face is in view.
+        return d.x1 > EDGE_MARGIN && d.x2 < 1f - EDGE_MARGIN
+    }
+
+    /** Reject profile / half faces: the nose must sit roughly between the eyes (low yaw). */
+    private fun frontalOk(kp5: FloatArray, w: Int, h: Int): Boolean {
+        if (kp5.size < 10) return false
+        val lex = kp5[0] * w; val ley = kp5[1] * h   // left eye
+        val rex = kp5[2] * w; val rey = kp5[3] * h   // right eye
+        val nx = kp5[4] * w                          // nose x
+        val eyeDist = hypot(rex - lex, rey - ley)
+        if (eyeDist < 1f) return false
+        val yaw = abs(nx - (lex + rex) / 2f) / eyeDist // ~0 when frontal, grows toward a profile
+        return yaw <= MAX_YAW
     }
 
     /**
@@ -516,6 +534,8 @@ class MainActivity : AppCompatActivity() {
                                                  // different-person max 0.21 and same-person min 0.26)
         private const val RECOG_MIN_SCORE = 0.6f // detector confidence gate before embedding
         private const val MIN_FACE_FRAC = 0.07f  // min face-box side as a fraction of the frame
+        private const val EDGE_MARGIN = 0.015f   // reject faces whose box hugs the L/R frame edge (half face)
+        private const val MAX_YAW = 0.55f        // nose-offset / eye-distance ceiling (above = too side-on)
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
         private const val FRAMING_COOLDOWN_MS = 5000L // wait this long between framing captures
         private const val FRAMING_PAD = 0.15f         // padding added around the framed bbox

@@ -17,10 +17,10 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * The face gallery screen: a grid of every enrolled identity (its aligned 112x112 crop +
- * label + how many times it's been seen). Tap a face to rename it; tap the ✕ badge on a face
- * (or long-press it) to delete it. The whole UI is built in code so it needs no extra
- * layout/adapter resources.
+ * The face gallery screen: a grid of every enrolled identity (its aligned 112x112 crop + label +
+ * how many times it's been seen). Tap the **✕** badge on a face to delete it; **long-press** a face
+ * to rename it (so a stray tap never renames by accident); **Clear all** in the header wipes the
+ * gallery. UI is built in code — no extra layout/adapter resources.
  */
 class GalleryActivity : AppCompatActivity() {
 
@@ -38,10 +38,22 @@ class GalleryActivity : AppCompatActivity() {
         val pad = (12 * density).toInt()
 
         header = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 18f
-            setPadding(pad, pad, pad, pad)
+            setTextColor(Color.WHITE); textSize = 16f; setPadding(pad, pad, pad, pad)
         }
+        val clearBtn = TextView(this).apply {
+            text = "Clear all"
+            setTextColor(Color.parseColor("#ef4444"))
+            textSize = 15f; isClickable = true
+            setPadding(pad, pad, pad, pad)
+            setOnClickListener { confirmClearAll() }
+        }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(header, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(clearBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
         val grid = GridView(this).apply {
             numColumns = 3
             horizontalSpacing = (8 * density).toInt()
@@ -51,27 +63,23 @@ class GalleryActivity : AppCompatActivity() {
         }
         adapter = Adapter(density)
         grid.adapter = adapter
-        grid.setOnItemClickListener { _, _, pos, _ -> renameAt(pos) }
-        grid.setOnItemLongClickListener { _, _, pos, _ -> items.getOrNull(pos)?.let { deletePerson(it) }; true }
+        // Tap does nothing (no accidental rename); long-press renames; the ✕ badge deletes.
+        grid.setOnItemLongClickListener { _, _, pos, _ -> renameAt(pos); true }
 
-        val root = LinearLayout(this).apply {
+        setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0b0f17"))
-            addView(header, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            addView(headerRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        }
-        setContentView(root)
+        })
     }
 
-    override fun onResume() {
-        super.onResume()
-        refresh()
-    }
+    override fun onResume() { super.onResume(); refresh() }
 
     private fun refresh() {
         items = gallery.all()
         header.text = if (items.isEmpty()) "No faces yet — point the camera at someone."
-            else "Gallery · ${items.size} ${if (items.size == 1) "person" else "people"}"
+            else "${items.size} ${if (items.size == 1) "person" else "people"}  ·  long-press to rename"
         adapter.notifyDataSetChanged()
     }
 
@@ -89,7 +97,6 @@ class GalleryActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Confirm + delete a single identity (from the ✕ badge or a long-press). */
     private fun deletePerson(p: FaceGallery.Person) {
         AlertDialog.Builder(this)
             .setTitle("Delete ${p.label}?")
@@ -99,7 +106,17 @@ class GalleryActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Grid cell = aligned face thumbnail (with a ✕ delete badge) above a label. */
+    private fun confirmClearAll() {
+        if (items.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle("Clear all ${items.size} faces?")
+            .setMessage("Removes every enrolled face. The camera can re-add them later.")
+            .setPositiveButton("Clear all") { _, _ -> gallery.clear(); refresh() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Grid cell = aligned face thumbnail (with a big ✕ delete badge) above a label. */
     private inner class Adapter(private val density: Float) : BaseAdapter() {
         override fun getCount() = items.size
         override fun getItem(pos: Int) = items[pos]
@@ -108,8 +125,7 @@ class GalleryActivity : AppCompatActivity() {
         override fun getView(pos: Int, convertView: View?, parent: ViewGroup): View {
             val cell = (convertView as? LinearLayout) ?: buildCell()
             val p = items[pos]
-            val bmp = BitmapFactory.decodeFile(p.thumbPath) // null if the thumb is missing -> blank
-            cell.findViewById<ImageView>(android.R.id.icon).setImageBitmap(bmp)
+            cell.findViewById<ImageView>(android.R.id.icon).setImageBitmap(BitmapFactory.decodeFile(p.thumbPath))
             cell.findViewById<TextView>(android.R.id.text1).text = "${p.label}  ·  ${p.count}"
             cell.findViewById<TextView>(deleteBtnId).setOnClickListener { deletePerson(p) }
             return cell
@@ -118,7 +134,7 @@ class GalleryActivity : AppCompatActivity() {
         private fun buildCell(): LinearLayout {
             val ctx = this@GalleryActivity
             val sz = (104 * density).toInt()
-            val q = (5 * density).toInt()
+            val q = (8 * density).toInt()
             val frame = FrameLayout(ctx).apply {
                 layoutParams = LinearLayout.LayoutParams(sz, sz)
                 addView(ImageView(ctx).apply {
@@ -128,11 +144,12 @@ class GalleryActivity : AppCompatActivity() {
                     )
                     scaleType = ImageView.ScaleType.CENTER_CROP
                 })
+                // Big, easy-to-hit delete badge (bigger glyph + generous padding = larger touch target).
                 addView(TextView(ctx).apply {
                     id = deleteBtnId
                     text = "✕"
                     setTextColor(Color.WHITE)
-                    textSize = 13f
+                    textSize = 18f
                     isClickable = true
                     setPadding(q, q / 2, q, q / 2)
                     setBackgroundColor(Color.parseColor("#CC000000"))

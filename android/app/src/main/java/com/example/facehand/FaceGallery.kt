@@ -81,6 +81,13 @@ class FaceGallery private constructor(context: Context) {
         save()
     }
 
+    /** Remove every identity (and its thumbnail). */
+    @Synchronized fun clear() {
+        people.forEach { File(it.thumbPath).delete() }
+        people.clear()
+        save()
+    }
+
     // --- persistence ---
     private fun load() {
         if (!indexFile.exists()) return
