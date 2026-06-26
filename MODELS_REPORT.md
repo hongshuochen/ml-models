@@ -232,6 +232,40 @@ smaller pico needs more adaptation (`last.pt`, ep13) and pays a bit more on the 
 **Caveat:** webcam-val *face* AP is vs InsightFace pseudo-labels (HaGRID has no face GT),
 so it measures teacher-agreement; webcam *hand* AP is against HaGRID's real human boxes.
 
+## 7.5. QR + barcode — one 4-class detector (face / hand / qr / barcode)
+
+**Goal.** Extend the deployed pico-P4P5 to also find **QR codes** (any size/rotation/colour,
+incl. branded centre-logo) and **1D barcodes** (Code128 / EAN-13 / Code39) — for an on-glasses
+camera that should read codes as well as faces/hands — *without* a second model or any
+face/hand regression.
+
+**Data.** `synth_qr_barcode.py` generates codes with wide variety (auto-fit QR version, random
+error-correction / border / fg-bg colour / 30 % centre logo; barcodes with random data + module
+height) and pastes 1–2 per image at random scale (0.12–0.55 of the frame), position and rotation
+(QR any angle, barcode ±45°) onto **no-face COCO backgrounds** (picked from the InsightFace cache
+so no unlabelled faces are injected) → YOLO labels qr=2 / barcode=3. **15 000 train + 1 500 val**
+synthetic images (`datasets/qrbar`), mixed with the existing face(0)/hand(1) data
+(`face-hand-qr-bar.yaml`). Warm-start from the 2-class pico `pico_hagrid.pt` (Ultralytics re-inits
+the head for nc=4, keeps the backbone); 30 ep, lr0 0.005, imgsz 640.
+
+| class | P | R | **mAP@50** | mAP@50-95 |
+|-------|---:|---:|-----------:|----------:|
+| face (WIDER val) | 0.80 | 0.38 | 0.451 | 0.227 |
+| hand (WIDER val) | 0.93 | 0.98 | 0.989 | 0.857 |
+| qr (synth val) | 0.97 | 0.97 | **0.984** | 0.961 |
+| barcode (synth val) | 0.95 | 0.97 | **0.973** | 0.926 |
+
+**No regression — both even ticked up.** Same WIDER face-hand val vs the 2-class pico:
+face mAP@50 0.438 → **0.451**, hand 0.980 → **0.989** (more data = mild regularization).
+**qr 0.984 / barcode 0.973** come for free. Still **0.64 M params** (the 4-class head adds a
+few hundred). Deploy: **int8 dyn-range 0.78 MB** (`yolo val` on the tflite: face 0.452 / hand
+0.986 / qr 0.983 / barcode 0.972 — mAP@50 lossless). `runs/detect/face_hand_qr_bar_pico/`
+(`pico_qrbar.pt`).
+
+**Caveat.** Backgrounds are 3rd-person COCO, not egocentric; QR/barcode *detection* (vs
+*decoding*) is fairly domain-robust, but to optimise on-glasses scanning, fine-tune later on
+real capture frames. Detection ≠ decoding — pair with a decoder (ZXing / ML Kit) downstream.
+
 ## Key findings
 
 - **float16 = best deployment choice**: identical accuracy to float32 at **half the

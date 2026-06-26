@@ -118,6 +118,22 @@ uv run yolo val model=<ckpt> data=hagrid-val.yaml imgsz=640 device=0  # webcam d
 → webcam hand AP@50 0.01-0.03 → ~0.99 (see MODELS_REPORT §7). Deploy pico `last.pt`
 int8 dyn-range 0.807 MB.
 
+## 7.5. QR + barcode — one 4-class detector (face / hand / qr / barcode)
+```bash
+# Synthesize codes onto no-face COCO backgrounds (needs datasets/face_cls_cache.json from
+# prepare_coco_face_cls.py) -> datasets/qrbar (15k train / 1.5k val, qr=2 barcode=3)
+uv run python synth_qr_barcode.py --n-train 15000 --n-val 1500
+# Warm-start from the 2-class pico (head auto re-inits for nc=4, backbone kept)
+uv run yolo detect train model=runs/detect/face_hand_pico_p45_hagrid_ft/weights/pico_hagrid.pt \
+  data=face-hand-qr-bar.yaml epochs=30 imgsz=640 batch=32 device=0 lr0=0.005 patience=15 \
+  name=face_hand_qr_bar_pico             # -> runs/detect/face_hand_qr_bar_pico, keep best.pt=pico_qrbar.pt
+uv run yolo detect val model=<best.pt> data=face-hand-qr-bar.yaml imgsz=640 device=0  # per-class AP
+# Export (same as §5/§9): f32+f16 saved_model, then dyn-range int8 via TF Optimize.DEFAULT
+uv run yolo export model=runs/detect/face_hand_qr_bar_pico/weights/pico_qrbar.pt format=tflite imgsz=640 device=cpu
+```
+→ face 0.451 / hand 0.989 / qr 0.984 / barcode 0.973 mAP@50 (MODELS_REPORT §7.5); no face/hand
+regression. Deploy int8 dyn-range 0.78 MB.
+
 ## 8. Face landmark — 5 ArcFace points (for face alignment)
 InsightFace gives the 5 points free per detected face; distill them into a tiny regressor.
 ```bash
