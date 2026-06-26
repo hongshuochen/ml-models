@@ -1,0 +1,24 @@
+# 4-class detector fine-tune with REAL QR/barcode photos (closing the synthetic->real gap).
+#   face/hand : WIDER + hand-keypoints + HaGRIDv2 (unchanged, for retention).
+#   qr/barcode: HARDENED synth (synth_qr_barcode.py v2: perspective/blur/lighting/small/jpeg) +
+#               REAL photos (prepare_real_codes.py): NHMNguyen/QR_CODE (qr) +
+#               benjamintli/barcode-object-detection (barcode).
+# Warm-start from runs/detect/face_hand_qr_bar_pico (the synthetic-only 4-class pico).
+# Val = the held-out face/hand val + the hard REAL code sets (clean synth-like QR is excluded so
+# the checkpoint is chosen on real-world performance, not the easy rendered case).
+path: /home/max/2026/ml-models/datasets
+train:
+  - face-hand/images/train
+  - hagrid_det_v2/images/train
+  - qrbar/images/train
+  - real_codes/images/train
+val:
+  - face-hand/images/val
+  - real_codes/images/val_qr_real
+  - real_codes/images/val_bc
+
+names:
+  0: face
+  1: hand
+  2: qr
+  3: barcode
