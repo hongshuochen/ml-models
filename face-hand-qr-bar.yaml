@@ -1,0 +1,21 @@
+# 4-class detector: face + hand + qr + barcode.
+#   face/hand: WIDER (face) + HaGRIDv2 (hand) + InsightFace face pseudo-labels (same as
+#              face-hand-hagrid-v2.yaml).
+#   qr/barcode: synthesized by synth_qr_barcode.py (generated codes pasted onto no-face COCO
+#               backgrounds, lots of size/rotation/colour/logo variety).
+# Warm-start from the 2-class pico (runs/detect/face_hand_pico_p45_hagrid_ft) -> Ultralytics
+# re-inits the head for nc=4 and keeps the backbone.
+path: /home/max/2026/ml-models/datasets
+train:
+  - face-hand/images/train
+  - hagrid_det_v2/images/train
+  - qrbar/images/train
+val:
+  - face-hand/images/val
+  - qrbar/images/val
+
+names:
+  0: face
+  1: hand
+  2: qr
+  3: barcode

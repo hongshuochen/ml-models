@@ -6,5 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "insightface>=1.0.1",
+    "python-barcode>=0.16.1",
+    "qrcode>=8.2",
     "ultralytics>=8.4.70",
 ]
