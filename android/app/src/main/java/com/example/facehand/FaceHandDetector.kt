@@ -27,22 +27,39 @@ data class Detection(
 )
 
 /**
- * Face + hand detector backed by our compact YOLO26 TFLite model (Pico-P4P5 + HaGRID).
+ * A selectable detector model: its bundled TFLite asset, a display name for the picker, and the
+ * class labels it emits (the model's class index maps into this array). All variants share the same
+ * NMS-free YOLO26 Pico-P4P5 architecture / IO, so they're interchangeable at runtime.
+ */
+enum class DetectorModel(val asset: String, val displayName: String, val labels: Array<String>) {
+    FACE_HAND("face_hand.tflite", "Face + Hand", arrayOf("face", "hand")),
+    FACE_HAND_QR_BAR(
+        "face_hand_qr_bar.tflite", "Face + Hand + QR + Barcode",
+        arrayOf("face", "hand", "qr", "barcode"),
+    );
+
+    /** True if this model emits qr/barcode boxes worth handing to the barcode decoder. */
+    val decodesCodes get() = labels.contains("qr") || labels.contains("barcode")
+}
+
+/**
+ * Face + hand (+ optional QR/barcode) detector backed by our compact YOLO26 TFLite model
+ * (Pico-P4P5 + HaGRID).
  *
  * The model is NMS-free / end-to-end: input is float32 NHWC [1, 640, 640, 3] with RGB
  * values in [0,1]; output is float32 [1, 300, 6] where each row is
- * [x1, y1, x2, y2, conf, cls] (corners normalized to [0,1]; class 0 = face, 1 = hand).
+ * [x1, y1, x2, y2, conf, cls] (corners normalized to [0,1]; cls indexes [model]'s labels).
  * Rows are sorted by confidence descending, so we can stop interpreting once scores drop.
  */
-class FaceHandDetector(context: Context, modelAsset: String = MODEL_ASSET) {
+class FaceHandDetector(context: Context, val model: DetectorModel = DetectorModel.FACE_HAND) {
+
+    private val labels = model.labels
 
     companion object {
-        const val MODEL_ASSET = "face_hand.tflite"
-        const val INPUT = 640            // square model input
+        const val INPUT = 640            // square model input (shared by all variants)
         const val NUM_DET = 300          // fixed number of output rows
         const val STRIDE = 6             // values per row: x1,y1,x2,y2,conf,cls
         const val SCORE_THRESHOLD = 0.5f
-        val LABELS = arrayOf("face", "hand")
     }
 
     private val interpreter: Interpreter
@@ -55,7 +72,7 @@ class FaceHandDetector(context: Context, modelAsset: String = MODEL_ASSET) {
 
     init {
         val options = Interpreter.Options().apply { setNumThreads(4) }
-        interpreter = Interpreter(loadModelFile(context, modelAsset), options)
+        interpreter = Interpreter(loadModelFile(context, model.asset), options)
     }
 
     /** Memory-map the .tflite from assets (requires noCompress "tflite" in Gradle). */
@@ -101,8 +118,8 @@ class FaceHandDetector(context: Context, modelAsset: String = MODEL_ASSET) {
             val x2 = r[2].coerceIn(0f, 1f)
             val y2 = r[3].coerceIn(0f, 1f)
             if (x2 <= x1 || y2 <= y1) continue
-            val cls = r[5].toInt().coerceIn(0, LABELS.size - 1)
-            results.add(Detection(LABELS[cls], score, x1, y1, x2, y2))
+            val cls = r[5].toInt().coerceIn(0, labels.size - 1)
+            results.add(Detection(labels[cls], score, x1, y1, x2, y2))
         }
         return results
     }

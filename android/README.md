@@ -25,9 +25,17 @@ once per appearance (re-confirmed ~every 3 s), not every frame. Unknown faces ar
 rename, ✕ / long-press = delete), with the **two most-recently-seen faces** shown as thumbnails
 under it. The gallery persists to `filesDir/gallery/` across restarts.
 
-- **Detector:** `app/src/main/assets/face_hand.tflite` — Pico-P4P5 + HaGRID, int8
-  dynamic-range (~0.8 MB). NMS-free YOLO26: input `[1,640,640,3]` f32, output
-  `[1,300,6]` = `[x1,y1,x2,y2,conf,cls]` (cls 0=face, 1=hand).
+- **Detector:** selectable via the **top-right settings (gear) button** between two interchangeable
+  Pico-P4P5 + HaGRID int8 dyn-range models (same NMS-free YOLO26 IO: input `[1,640,640,3]` f32,
+  output `[1,300,6]` = `[x1,y1,x2,y2,conf,cls]`):
+  - `face_hand.tflite` (~0.8 MB) — 2 classes: 0=face, 1=hand.
+  - `face_hand_qr_bar.tflite` (~0.78 MB, **default**) — 4 classes: 0=face, 1=hand, **2=qr, 3=barcode**.
+  The pick is persisted (SharedPreferences) and hot-swapped on the analysis thread. The model
+  registry lives in `FaceHandDetector.DetectorModel`.
+- **QR / barcode decode:** when the 4-class model is active, each detected qr/barcode box is cropped
+  and read by **Google ML Kit** (`barcode-scanning`, bundled model → fully offline). The decoded
+  value shows in a tappable **banner** (tap = copy) and is read aloud once per distinct value via TTS
+  (it never talks over a framing narration). The detector only *localizes*; ML Kit *decodes*.
 - **Face embedder:** `app/src/main/assets/face_embed.tflite` — ArcFace **MobileFaceNet**
   (InsightFace `w600k_mbf`) converted to TFLite, **fp32 (~13 MB)**. Input is an aligned
   `[1,112,112,3]` NHWC RGB face normalized `(x-127.5)/127.5`; output `[1,512]` raw → L2-normalize
@@ -59,11 +67,12 @@ cd android && ./gradlew installDebug
 ```
 app/src/main/
   AndroidManifest.xml                     camera permission + Main/Gallery activities
-  assets/                                 bundled models: face_hand, face_embed,
+  assets/                                 bundled models: face_hand, face_hand_qr_bar, face_embed,
                                           hand_landmark, face_landmark, l_gesture (.tflite)
   java/com/example/facehand/
     MainActivity.kt                       CameraX setup, permissions, per-frame analyze loop
-    FaceHandDetector.kt                   detector TFLite load + preprocess + [1,300,6] decode
+    FaceHandDetector.kt                   detector TFLite load + preprocess + [1,300,6] decode; model registry
+    BarcodeDecoder.kt                     ML Kit QR/barcode decode of a detected code crop
     LandmarkRegressor.kt                  generic 21/5-pt keypoint regressor
     GestureClassifier.kt                  rotation-invariant "L" gesture MLP
     FaceTracker.kt                        IoU + size-gate face tracking (when to (re-)embed)
@@ -76,9 +85,10 @@ app/src/main/
 ```
 
 ## Swapping the model
-Drop a different exported `.tflite` in `assets/` and update `FaceHandDetector.MODEL_ASSET`.
-The float16 build (`pico_hagrid_float16.tflite`, ~1.3 MB) is a drop-in if you prefer it
-over int8. Keep input 640² and the `[1,300,6]` output layout, or adjust the constants in
+Drop a different exported `.tflite` in `assets/` and add an entry to the
+`FaceHandDetector.DetectorModel` enum (asset name, display name, class labels) — it appears in the
+settings picker automatically. The float16 builds (`*_float16.tflite`, ~1.3 MB) are drop-ins if you
+prefer them over int8. Keep input 640² and the `[1,300,6]` output layout, or adjust the constants in
 `FaceHandDetector`.
 
 ## Notes
@@ -90,4 +100,5 @@ over int8. Keep input 640² and the `[1,300,6]` output layout, or adjust the con
 - The 13.6 MB fp32 embedder loads on the analysis thread (not the UI thread) so it doesn't lengthen
   cold start; face recognition simply starts a beat after the camera. To shrink the APK, swap
   `face_embed.tflite` for the float16 build (~6.8 MB, indistinguishable accuracy).
-- minSdk 24, targetSdk 34, Kotlin, CameraX 1.3.4, tensorflow-lite 2.17.0.
+- minSdk 24, targetSdk 34, Kotlin, CameraX 1.3.4, tensorflow-lite 2.17.0, ML Kit
+  barcode-scanning 17.3.0 (bundled model — offline QR/barcode decode).

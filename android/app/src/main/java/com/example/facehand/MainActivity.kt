@@ -1,6 +1,8 @@
 package com.example.facehand
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -20,8 +22,10 @@ import android.util.Log
 import android.view.View
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -53,7 +57,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var overlay: OverlayView
+    // Detector is swapped (close + recreate) when the user picks a different model, always on the
+    // analysis thread so a swap never races a detect(). `currentModel` mirrors it for UI-thread reads.
     private lateinit var detector: FaceHandDetector
+    @Volatile private var currentModel = DetectorModel.FACE_HAND_QR_BAR
+    private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
+
+    // QR/barcode decoding: our detector localizes a code, ML Kit reads its content from the crop.
+    // Throttled + single-flight so decoding never piles up; the decoded value shows in a banner and
+    // is read aloud once per distinct value.
+    private lateinit var barcodeDecoder: BarcodeDecoder
+    private val decodeInFlight = AtomicBoolean(false)
+    @Volatile private var lastDecodeAt = 0L
+    @Volatile private var lastSpokenCode: String? = null
+    private lateinit var codeBanner: TextView
 
     // Single background thread for inference so the camera/UI thread is never blocked.
     private val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -118,7 +135,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         previewView = findViewById(R.id.previewView)
         overlay = findViewById(R.id.overlay)
-        detector = FaceHandDetector(this)
+        currentModel = DetectorModel.entries.firstOrNull { it.name == prefs.getString(PREF_MODEL, null) }
+            ?: DetectorModel.FACE_HAND_QR_BAR
+        detector = FaceHandDetector(this, currentModel)
+        barcodeDecoder = BarcodeDecoder()
         handReg = LandmarkRegressor(this, "hand_landmark.tflite", 21)
         faceReg = LandmarkRegressor(this, "face_landmark.tflite", 5)
         gestureClf = GestureClassifier(this)
@@ -147,6 +167,15 @@ class MainActivity : AppCompatActivity() {
         // The bottom-left recent-framing thumbnail opens the framing gallery.
         framingThumb = findViewById(R.id.framingThumb)
         framingThumb.setOnClickListener { startActivity(Intent(this, FramingGalleryActivity::class.java)) }
+        // Settings gear: pick the detector model (face+hand vs +qr+barcode).
+        findViewById<ImageButton>(R.id.settingsButton).setOnClickListener { showModelPicker() }
+        // Decoded-code banner: tap to copy the value to the clipboard.
+        codeBanner = findViewById(R.id.codeBanner)
+        codeBanner.setOnClickListener {
+            val v = codeBanner.text?.toString() ?: return@setOnClickListener
+            getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("code", v))
+            Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
+        }
         shutterSound.load(MediaActionSound.SHUTTER_CLICK)
         // On-device TTS for reading the Gemini caption aloud. (For Chinese: Locale.TRADITIONAL_CHINESE
         // + a Chinese prompt in GeminiCaptioner — needs a Chinese TTS voice installed on the device.)
@@ -155,8 +184,9 @@ class MainActivity : AppCompatActivity() {
                 tts?.language = Locale.ENGLISH
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {}
-                    override fun onDone(utteranceId: String?) { processing.set(false) } // unlock next framing
-                    @Deprecated("required override") override fun onError(utteranceId: String?) { processing.set(false) }
+                    // Only a framing narration owns the `processing` gate — a code read-aloud must not unlock it.
+                    override fun onDone(utteranceId: String?) { if (utteranceId?.startsWith("framing-") == true) processing.set(false) }
+                    @Deprecated("required override") override fun onError(utteranceId: String?) { if (utteranceId?.startsWith("framing-") == true) processing.set(false) }
                 })
                 ttsReady = true
             }
@@ -277,6 +307,9 @@ class MainActivity : AppCompatActivity() {
             val h = upright.height
             val mirror = lensFacing == CameraSelector.LENS_FACING_FRONT
             overlay.post { overlay.setResults(detections, w, h, mirror, ms, quad) }
+            // QR/barcode: hand the highest-confidence code box to ML Kit to read its content (throttled,
+            // single-flight). Crops a copy synchronously, so `upright` is safe to recycle right after.
+            if (currentModel.decodesCodes) maybeDecodeCodes(upright, detections)
             // Done with this frame's working bitmaps — free them so they don't pile up at 30fps.
             if (scaled != upright) scaled.recycle()
             upright.recycle()
@@ -459,6 +492,98 @@ class MainActivity : AppCompatActivity() {
     private fun circular(bmp: Bitmap) =
         RoundedBitmapDrawableFactory.create(resources, bmp).apply { isCircular = true }
 
+    // --- Model selection -------------------------------------------------------------------------
+
+    /** Single-choice dialog over the available detector models; persists + hot-swaps the pick. */
+    private fun showModelPicker() {
+        val models = DetectorModel.entries
+        val names: Array<CharSequence> = Array(models.size) { models[it].displayName }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.select_model)
+            .setSingleChoiceItems(names, models.indexOf(currentModel)) { dialog, which ->
+                dialog.dismiss()
+                selectModel(models[which])
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Swap the detector to [m] (close old + open new on the analysis thread) and remember the choice. */
+    private fun selectModel(m: DetectorModel) {
+        if (m == currentModel) return
+        currentModel = m
+        prefs.edit().putString(PREF_MODEL, m.name).apply()
+        // Recreate on the analysis thread (FIFO with analyze()) so the swap never races a detect().
+        analysisExecutor.execute {
+            detector.close()
+            detector = FaceHandDetector(this, m)
+        }
+        if (!m.decodesCodes) runOnUiThread { codeBanner.visibility = View.GONE }
+        Toast.makeText(this, m.displayName, Toast.LENGTH_SHORT).show()
+    }
+
+    // --- QR / barcode decoding -------------------------------------------------------------------
+
+    /**
+     * If a code box is present and we're past the throttle window, crop the best one and let ML Kit
+     * decode it asynchronously. [upright] is only read synchronously here (the crop is an independent
+     * copy), so the caller may recycle it immediately after.
+     */
+    private fun maybeDecodeCodes(upright: Bitmap, detections: List<Detection>) {
+        val now = System.currentTimeMillis()
+        if (now - lastDecodeAt < DECODE_INTERVAL_MS) return
+        val box = detections
+            .filter { it.label == "qr" || it.label == "barcode" }
+            .maxByOrNull { it.score } ?: return
+        if (!decodeInFlight.compareAndSet(false, true)) return // a previous decode is still running
+        lastDecodeAt = now
+        val crop = cropBox(upright, box, CODE_CROP_PAD) ?: run { decodeInFlight.set(false); return }
+        barcodeDecoder.decode(crop) { value -> // callback on the main thread
+            crop.recycle()
+            decodeInFlight.set(false)
+            if (value != null) onCodeDecoded(value)
+        }
+    }
+
+    /** Crop [d]'s box (expanded by [pad]) from [upright] into an independent bitmap (caller owns it). */
+    private fun cropBox(upright: Bitmap, d: Detection, pad: Float): Bitmap? {
+        val w = upright.width
+        val h = upright.height
+        val cx = (d.x1 + d.x2) / 2f * w
+        val cy = (d.y1 + d.y2) / 2f * h
+        val halfW = (d.x2 - d.x1) * w * (0.5f + pad)
+        val halfH = (d.y2 - d.y1) * h * (0.5f + pad)
+        val l = (cx - halfW).toInt().coerceIn(0, w)
+        val t = (cy - halfH).toInt().coerceIn(0, h)
+        val r = (cx + halfW).toInt().coerceIn(0, w)
+        val b = (cy + halfH).toInt().coerceIn(0, h)
+        if (r - l < 8 || b - t < 8) return null
+        val out = Bitmap.createBitmap(r - l, b - t, Bitmap.Config.ARGB_8888)
+        Canvas(out).drawBitmap(upright, Rect(l, t, r, b), RectF(0f, 0f, (r - l).toFloat(), (b - t).toFloat()), null)
+        return out
+    }
+
+    /** Show the decoded value in the banner (auto-hiding) and read it aloud once per distinct value. */
+    private fun onCodeDecoded(value: String) {
+        codeBanner.text = value
+        codeBanner.visibility = View.VISIBLE
+        mainHandler.removeCallbacks(hideBanner)
+        mainHandler.postDelayed(hideBanner, CODE_BANNER_MS)
+        if (value != lastSpokenCode) {
+            lastSpokenCode = value
+            speakCode(value)
+        }
+    }
+
+    private val hideBanner = Runnable { codeBanner.visibility = View.GONE }
+
+    /** Speak a decoded code — but never talk over an in-progress framing narration. */
+    private fun speakCode(value: String) {
+        val t = tts ?: return
+        if (!ttsReady || processing.get()) return
+        t.speak(value, TextToSpeech.QUEUE_FLUSH, null, "code-$value")
+    }
+
     /**
      * While the two-hand frame is held, auto-capture a full-res framed snapshot — but only once the
      * previous shot has finished being captioned + narrated ([processing] gate), so descriptions
@@ -609,7 +734,9 @@ class MainActivity : AppCompatActivity() {
         shutterSound.release()
         tts?.stop()
         tts?.shutdown()
+        mainHandler.removeCallbacks(hideBanner)
         detector.close()
+        barcodeDecoder.close()
         handReg.close()
         faceReg.close()
         gestureClf.close()
@@ -628,5 +755,9 @@ class MainActivity : AppCompatActivity() {
         private const val SHARP_MIN = 50.0       // variance-of-Laplacian blur gate (raise to reject more blur)
         private const val FRAMING_THUMB_PX = 160 // bottom-left preview thumbnail resolution
         private const val GEMINI_MAX_SIDE = 768  // single Gemini image tile = faster + cheaper
+        private const val PREF_MODEL = "detector_model"  // SharedPreferences key for the chosen model
+        private const val DECODE_INTERVAL_MS = 500L      // min gap between ML Kit decode attempts
+        private const val CODE_BANNER_MS = 4000L         // how long a decoded value stays on screen
+        private const val CODE_CROP_PAD = 0.15f          // expand the code box this much before decoding
     }
 }

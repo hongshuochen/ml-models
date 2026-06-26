@@ -39,6 +39,18 @@ class OverlayView @JvmOverloads constructor(
         strokeWidth = 6f
         isAntiAlias = true
     }
+    private val qrPaint = Paint().apply {
+        color = Color.parseColor("#a855f7") // purple
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        isAntiAlias = true
+    }
+    private val barcodePaint = Paint().apply {
+        color = Color.parseColor("#f59e0b") // amber
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        isAntiAlias = true
+    }
     private val labelBg = Paint().apply { style = Paint.Style.FILL; isAntiAlias = true }
     private val labelText = Paint().apply {
         color = Color.parseColor("#0b0f17")
@@ -93,7 +105,12 @@ class OverlayView @JvmOverloads constructor(
             val top = d.y1 * srcH * scale + dy
             val bottom = d.y2 * srcH * scale + dy
 
-            val paint = if (d.label == "hand") handPaint else facePaint
+            val paint = when (d.label) {
+                "hand" -> handPaint
+                "qr" -> qrPaint
+                "barcode" -> barcodePaint
+                else -> facePaint
+            }
             canvas.drawRect(left, top, right, bottom, paint)
 
             // Label chip — recognized name for known faces ("Alex 62%"), else class + conf.

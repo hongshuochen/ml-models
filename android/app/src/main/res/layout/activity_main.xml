@@ -74,7 +74,41 @@
             android:src="@drawable/ic_framing"
             android:background="@drawable/flip_button_bg"
             android:contentDescription="@string/open_framing_gallery" />
+
+        <!-- Settings: pick which detector model runs (face+hand vs +qr+barcode). -->
+        <ImageButton
+            android:id="@+id/settingsButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginTop="12dp"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_settings"
+            android:background="@drawable/flip_button_bg"
+            android:contentDescription="@string/select_model" />
     </LinearLayout>
+
+    <!-- Decoded QR/barcode value (ML Kit), shown briefly when a code is read; tap to copy. -->
+    <TextView
+        android:id="@+id/codeBanner"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="110dp"
+        android:maxWidth="320dp"
+        android:maxLines="3"
+        android:ellipsize="end"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="10dp"
+        android:background="@drawable/code_banner_bg"
+        android:textColor="#0b0f17"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:elevation="4dp"
+        android:visibility="gone"
+        android:contentDescription="@string/decoded_code" />
 
     <!-- Face gallery (top-left): icon opens the gallery; below it, the two most-recently-seen faces. -->
     <LinearLayout

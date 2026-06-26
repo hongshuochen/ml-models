@@ -6,4 +6,6 @@
     <string name="open_gallery">Open face gallery</string>
     <string name="recent_face">Recently seen face</string>
     <string name="open_framing_gallery">Open framing gallery</string>
+    <string name="select_model">Select detector model</string>
+    <string name="decoded_code">Decoded code</string>
 </resources>

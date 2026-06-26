@@ -50,6 +50,11 @@ dependencies {
     // int8 dynamic-range models' hybrid FULLY_CONNECTED op (v12) loads; 2.16.1 only knew up to v11.
     implementation("org.tensorflow:tensorflow-lite:2.17.0")
 
+    // Google ML Kit — on-device QR/1-D barcode DECODING. Our YOLO detector localizes a code; ML Kit
+    // reads its content from the cropped region. This artifact bundles the model in the APK (no Play
+    // Services download needed), so decoding stays fully offline.
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
     // AndroidX UI essentials.
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
