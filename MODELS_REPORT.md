@@ -266,6 +266,37 @@ few hundred). Deploy: **int8 dyn-range 0.78 MB** (`yolo val` on the tflite: face
 *decoding*) is fairly domain-robust, but to optimise on-glasses scanning, fine-tune later on
 real capture frames. Detection ≠ decoding — pair with a decoder (ZXing / ML Kit) downstream.
 
+## 7.6. Synthetic→real gap — measuring it, then fixing it with real photos
+
+The §7.5 caveat bit hard. The synthetic-only detector scored 0.95 on synthetic-style codes but
+**collapsed on REAL photos** (perspective, blur, glare, small/distant, print/screen texture).
+Measured on downloaded real-world detection sets converted to our layout by `prepare_real_codes.py`
+(qr=2, barcode=3):
+
+| eval set (real, mAP@50) | synthetic-only | + real fine-tune | **+ QR boost (deployed)** |
+|---|---:|---:|---:|
+| QR — NHMNguyen real photos (188) | 0.169 | 0.643 | **0.726** |
+| QR — mipt, independent source (11) | 0.13 | 0.578 | **0.786** |
+| QR — BoofCV held-out, hardest (160) | — | — | **0.647** |
+| barcode — benjamintli retail (2,800) | 0.150 | 0.950 | **0.949** |
+| QR — synthetic-style (3,123) | 0.947 | 0.995 | 0.995 |
+
+Face/hand unchanged throughout (face 0.45→0.43, hand 0.989→0.988; webcam face 0.994 / hand 0.991).
+
+**Two levers, both needed:**
+1. **Real data** (`prepare_real_codes.py`): NHMNguyen/QR_CODE + benjamintli/barcode-object-detection
+   + BoofCV qrcodes_v3 + kolabit/qr-codes. The 13k real retail barcodes essentially **solved barcode
+   (0.15→0.95)**; real QR was thinner (~1.6k unique) so it's **oversampled 3×** to ~22% of the QR pool.
+2. **Hardened synthesizer** (`synth_qr_barcode.py` v2): per-code perspective warp + rotation, a
+   small/distant regime, brightness/contrast/colour jitter, gaussian blur, variable JPEG. The
+   clean-only synth was the overfit trap.
+
+**Result: real QR 0.17→0.73–0.79, real barcode 0.15→0.95**, no face/hand regression, still 0.64 M
+params / **0.78 MB int8 dyn-range** (lossless: int8 qrreal 0.718 / boof 0.645 / bc 0.949). Deployed as
+the Android `face_hand_qr_bar.tflite`. `runs/detect/face_hand_qr_bar_real2/` (`pico_qrbar_real2.pt`).
+BoofCV's hardest categories (damaged / pathological / extreme glare, recall ~0.60) are the floor for a
+model this small. (Warm-start from the synthetic-only pico → `face-hand-qr-bar-real.yaml`.)
+
 ## Key findings
 
 - **float16 = best deployment choice**: identical accuracy to float32 at **half the

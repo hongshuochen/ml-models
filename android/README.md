@@ -30,6 +30,8 @@ under it. The gallery persists to `filesDir/gallery/` across restarts.
   output `[1,300,6]` = `[x1,y1,x2,y2,conf,cls]`):
   - `face_hand.tflite` (~0.8 MB) — 2 classes: 0=face, 1=hand.
   - `face_hand_qr_bar.tflite` (~0.78 MB, **default**) — 4 classes: 0=face, 1=hand, **2=qr, 3=barcode**.
+    Trained on **real** QR/barcode photos (not just synthetic): real-world mAP@50 ≈ qr 0.73 / barcode
+    0.95 (MODELS_REPORT §7.6).
   The pick is persisted (SharedPreferences) and hot-swapped on the analysis thread. The model
   registry lives in `FaceHandDetector.DetectorModel`.
 - **QR / barcode decode:** when the 4-class model is active, each detected qr/barcode box is cropped

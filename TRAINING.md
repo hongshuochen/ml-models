@@ -132,7 +132,30 @@ uv run yolo detect val model=<best.pt> data=face-hand-qr-bar.yaml imgsz=640 devi
 uv run yolo export model=runs/detect/face_hand_qr_bar_pico/weights/pico_qrbar.pt format=tflite imgsz=640 device=cpu
 ```
 → face 0.451 / hand 0.989 / qr 0.984 / barcode 0.973 mAP@50 (MODELS_REPORT §7.5); no face/hand
-regression. Deploy int8 dyn-range 0.78 MB.
+regression. Deploy int8 dyn-range 0.78 MB. **BUT synthetic-only collapses on real photos** (real qr
+0.17 / barcode 0.15) → fine-tune on real data (§7.6).
+
+## 7.6. QR + barcode — real-photo fine-tune (close the synthetic→real gap)
+```bash
+# Real datasets -> our 4-class YOLO layout (qr=2, barcode=3). Needs datasets/face_cls_cache.json.
+uv run python -c "from huggingface_hub import hf_hub_download as d; d('NHMNguyen/QR_CODE','QR_Dataset.zip',repo_type='dataset',local_dir='datasets/nhm_qr')" \
+  && (cd datasets/nhm_qr && unzip -q -o QR_Dataset.zip)
+uv run python prepare_real_codes.py qr   --src datasets/nhm_qr --out datasets/real_codes   # qr (real ds1_ vs synth robo_ val split)
+uv run --with pyarrow python prepare_real_codes.py bc --parquet datasets/benjamintli_bc/data/*.parquet --out datasets/real_codes --split train   # 13k real barcodes
+git clone https://github.com/kolabit/qr-codes datasets/kolabit_qr
+curl -sL -o datasets/boofcv_qr/qrcodes_v3.zip https://boofcv.org/notwiki/regression/fiducial/qrcodes_v3.zip && (cd datasets/boofcv_qr && unzip -q qrcodes_v3.zip)
+uv run python prepare_real_codes.py boof    --src datasets/boofcv_qr --out datasets/real_codes --val-frac 0.3
+uv run python prepare_real_codes.py kolabit --src datasets/kolabit_qr --out datasets/real_codes
+uv run python prepare_real_codes.py oversample --out datasets/real_codes --prefixes ds1 boof_ kola_ --k 3  # real QR ~6%->22%
+# Regenerate HARDENED synth (perspective/blur/lighting/small/jpeg), then warm-start fine-tune:
+uv run python synth_qr_barcode.py --n-train 15000 --n-val 1500   # synth_qr_barcode.py v2
+uv run yolo detect train model=runs/detect/face_hand_qr_bar_pico/weights/pico_qrbar.pt \
+  data=face-hand-qr-bar-real.yaml epochs=15 imgsz=640 batch=32 device=0 lr0=0.005 patience=10 \
+  name=face_hand_qr_bar_real2            # -> keep best.pt=pico_qrbar_real2.pt
+uv run yolo export model=runs/detect/face_hand_qr_bar_real2/weights/pico_qrbar_real2.pt format=tflite imgsz=640 device=cpu
+```
+→ real qr 0.73-0.79 / real barcode 0.95 (MODELS_REPORT §7.6); face/hand unchanged. Deploy int8
+dyn-range 0.78 MB as android `face_hand_qr_bar.tflite`.
 
 ## 8. Face landmark — 5 ArcFace points (for face alignment)
 InsightFace gives the 5 points free per detected face; distill them into a tiny regressor.

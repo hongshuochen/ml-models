@@ -43,7 +43,7 @@ All YOLO models are **YOLO26**, input **640×640**. Metrics are mAP@50 unless no
 | Face+Hand **Pico-P4P5** | detect (drop-P3) | 0.64 M | 0.752 (h 0.989) | **0.808 MB** | WIDER + hand-keypoints |
 | Face+Hand nano **+HaGRID** | detect | 2.50 M | orig 0.814 / **webcam 0.991** | 2.84 MB | + HaGRIDv2 |
 | Face+Hand **Pico-P4P5 +HaGRID** ⭐ | detect | 0.64 M | orig 0.709 / **webcam 0.991** | **0.807 MB** | + HaGRIDv2 |
-| Face+Hand+**QR**+**Barcode** Pico-P4P5 | detect (4-class) | 0.64 M | face 0.451 / hand 0.989 / **qr 0.984 / barcode 0.973** | **0.78 MB** | + synth qr/barcode |
+| Face+Hand+**QR**+**Barcode** Pico-P4P5 ⭐ | detect (4-class) | 0.64 M | face 0.43 / hand 0.989 / **real qr 0.73 / real barcode 0.95** | **0.78 MB** | + real QR/barcode photos |
 
 ¹ int8 corrupts the NMS-free pose head — use float16 (6.86 MB) for the pose model.
 
@@ -153,19 +153,23 @@ Two scorecards: **orig** = WIDER+hand-keypoints val, **webcam** = held-out HaGRI
 (int8/f16/f32 accuracy are ≈ equal here — dynamic-range int8 keeps float accuracy.)
 
 ### Face + Hand + **QR** + **Barcode** — 4 classes (one detector)
-Same Pico-P4P5 + HaGRID backbone, warm-started and extended with synthetic qr/barcode
-(`synth_qr_barcode.py`, generated codes on no-face COCO backgrounds). 0.64 M params.
+Same Pico-P4P5 + HaGRID backbone (0.64 M params), extended to qr/barcode. The first version trained
+on **synthetic-only** codes scored 0.95 on synthetic but **collapsed on real photos** — so it was
+fine-tuned on **real** detection data (`prepare_real_codes.py`: NHMNguyen QR + benjamintli barcode +
+BoofCV + kolabit) with a **hardened synthesizer** (perspective/blur/lighting/small/jpeg). See
+MODELS_REPORT §7.5–7.6.
 
-| Class | P | R | mAP@50 | mAP@50-95 |
-|-------|---:|---:|-------:|----------:|
-| face (WIDER val) | 0.80 | 0.38 | 0.451 | 0.227 |
-| hand (WIDER val) | 0.93 | 0.98 | 0.989 | 0.857 |
-| qr (synth val) | 0.97 | 0.97 | **0.984** | 0.961 |
-| barcode (synth val) | 0.95 | 0.97 | **0.973** | 0.926 |
+| eval set (real, mAP@50) | synthetic-only | **deployed (real-trained)** |
+|---|---:|---:|
+| QR — real photos (NHMNguyen) | 0.169 | **0.726** |
+| QR — independent (mipt) | 0.13 | **0.786** |
+| QR — hardest (BoofCV held-out) | — | **0.647** |
+| barcode — real retail (benjamintli) | 0.150 | **0.949** |
+| face / hand (unchanged) | 0.45 / 0.989 | 0.43 / 0.988 |
 
-No face/hand regression vs the 2-class pico (face 0.438 → 0.451, hand 0.980 → 0.989).
-Deploy int8 dyn-range **0.78 MB** (mAP@50 lossless on the tflite). Detection ≠ decoding —
-pair with a downstream QR/barcode decoder (ZXing / ML Kit).
+Real QR **0.17→0.73–0.79**, real barcode **0.15→0.95**, no face/hand regression. Deploy int8
+dyn-range **0.78 MB** (mAP@50 lossless on the tflite; real qr 0.718 / barcode 0.949). Detection ≠
+decoding — the Android app pairs it with an on-device **ML Kit** decoder.
 
 ### Hand-landmark regressors — 224² crop · 21 keypoints
 PCK@0.1 on hand-keypoints val (true GT) and the held-out HaGRID val (vs MediaPipe labels).
