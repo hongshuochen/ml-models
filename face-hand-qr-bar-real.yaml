@@ -15,6 +15,7 @@ train:
 val:
   - face-hand/images/val
   - real_codes/images/val_qr_real
+  - real_codes/images/val_qr_boof
   - real_codes/images/val_bc
 
 names:
