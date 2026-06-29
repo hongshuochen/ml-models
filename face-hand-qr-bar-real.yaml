@@ -10,8 +10,9 @@ path: /home/max/2026/ml-models/datasets
 train:
   - face-hand/images/train
   - hagrid_det_v2/images/train
-  - qrbar/images/train
+  - qrbar/images/train          # enhanced synth: + adjacent small pairs, denser QR, small barcodes
   - real_codes/images/train
+  - real_pairs/images/train      # REAL code crops pasted as small adjacent QR+barcode pairs
 val:
   - face-hand/images/val
   - real_codes/images/val_qr_real

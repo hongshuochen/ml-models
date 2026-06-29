@@ -30,11 +30,14 @@ LIGHT = [(255, 255, 255), (245, 245, 245), (255, 250, 230), (230, 245, 255)]
 
 def rand_text():
     r = random.random()
-    if r < 0.4:
+    if r < 0.35:
         return "https://" + "".join(random.choices("abcdefghijklmnopqrstuvwxyz", k=random.randint(4, 11))) + ".com"
-    if r < 0.7:
+    if r < 0.6:
         return "".join(random.choices("0123456789", k=random.randint(6, 18)))
-    return "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ", k=random.randint(8, 30)))
+    if r < 0.82:
+        return "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ", k=random.randint(8, 30)))
+    # long payload -> high-version / DENSE QR (many small modules) so the model also learns dense codes
+    return "".join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ", k=random.randint(45, 130)))
 
 
 def make_qr():
@@ -130,6 +133,48 @@ def paste_code(bg, code, cls, labels):
     labels.append((cls, (x + rw / 2) / bw, (y + rh / 2) / bh, rw / bw, rh / bh))
 
 
+def _fit(code, target_long):
+    cw, ch = code.size
+    s = target_long / max(cw, ch)
+    return code.resize((max(8, int(cw * s)), max(8, int(ch * s))), Image.LANCZOS).convert("RGBA")
+
+
+def paste_pair(bg, qr_img, qr_cls, bar_img, bar_cls, labels):
+    """Paste a QR + a barcode RIGHT NEXT TO each other at a small scale (the sticker-pair case:
+    two adjacent codes, both small). Each gets a mild perspective warp; boxes from the warped alpha."""
+    bw, bh = bg.size
+    base = int(min(bw, bh) * random.uniform(0.09, 0.30))  # QR side length (small)
+    qr = _fit(qr_img, base)
+    bar = _fit(bar_img, int(base * random.uniform(1.0, 1.7)))  # barcodes a bit longer
+    if random.random() < 0.5:
+        qr = warp(qr, random.uniform(0.04, 0.18))
+    if random.random() < 0.5:
+        bar = warp(bar, random.uniform(0.04, 0.12))
+    qb, bb = qr.getbbox(), bar.getbbox()
+    if not qb or not bb:
+        return
+    qr, bar = qr.crop(qb), bar.crop(bb)
+    gap = int(base * random.uniform(0.02, 0.22))
+    horiz = random.random() < 0.7
+    if horiz:
+        wp, hp = qr.width + gap + bar.width, max(qr.height, bar.height)
+    else:
+        wp, hp = max(qr.width, bar.width), qr.height + gap + bar.height
+    if wp >= bw or hp >= bh:
+        return
+    x0, y0 = random.randint(0, bw - wp), random.randint(0, bh - hp)
+    if horiz:
+        qx, qy = x0, y0 + (hp - qr.height) // 2
+        bx, by = x0 + qr.width + gap, y0 + (hp - bar.height) // 2
+    else:
+        qx, qy = x0 + (wp - qr.width) // 2, y0
+        bx, by = x0 + (wp - bar.width) // 2, y0 + qr.height + gap
+    bg.paste(qr, (qx, qy), qr)
+    bg.paste(bar, (bx, by), bar)
+    labels.append((qr_cls, (qx + qr.width / 2) / bw, (qy + qr.height / 2) / bh, qr.width / bw, qr.height / bh))
+    labels.append((bar_cls, (bx + bar.width / 2) / bw, (by + bar.height / 2) / bh, bar.width / bw, bar.height / bh))
+
+
 def degrade(img):
     """Whole-image capture-realism: lighting jitter + blur (jpeg noise is applied at save)."""
     if random.random() < 0.8:
@@ -153,6 +198,8 @@ def main():
     ap.add_argument("--bar-class", type=int, default=3)
     ap.add_argument("--size", type=int, default=640)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--real-patches", default=None, help="dir with qr/ and bar/ PNG crops; paste these instead of generated codes")
+    ap.add_argument("--pair-prob", type=float, default=0.35, help="probability an image is an adjacent small QR+barcode pair")
     args = ap.parse_args()
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -161,6 +208,20 @@ def main():
     bgs = [k for k, v in cache.items() if v and v.get("box") is None and "train2017" in k]
     random.shuffle(bgs)
     bi = 0
+
+    # Optionally paste REAL code crops (real texture) instead of freshly-generated codes.
+    real_qr = real_bar = None
+    if args.real_patches:
+        from glob import glob
+        real_qr = glob(args.real_patches + "/qr/*.png")
+        real_bar = glob(args.real_patches + "/bar/*.png")
+        print(f"real patches: qr={len(real_qr)} bar={len(real_bar)}")
+
+    def get_qr():
+        return Image.open(random.choice(real_qr)).convert("RGB") if real_qr else make_qr()
+
+    def get_bar():
+        return Image.open(random.choice(real_bar)).convert("RGB") if real_bar else make_barcode()
 
     for split, n in [("train", args.n_train), ("val", args.n_val)]:
         (Path(args.out) / "images" / split).mkdir(parents=True, exist_ok=True)
@@ -175,11 +236,17 @@ def main():
                     bg = None
                 bi += 1
             labels = []
-            for _ in range(random.randint(1, 2)):  # 1-2 codes per image
-                if random.random() < 0.6:
-                    paste_code(bg, make_qr(), args.qr_class, labels)
-                else:
-                    paste_code(bg, make_barcode(), args.bar_class, labels)
+            if random.random() < args.pair_prob:  # adjacent small QR+barcode pair (the sticker case)
+                paste_pair(bg, get_qr(), args.qr_class, get_bar(), args.bar_class, labels)
+                if random.random() < 0.3:  # plus an occasional stray code elsewhere
+                    (paste_code(bg, get_qr(), args.qr_class, labels) if random.random() < 0.5
+                     else paste_code(bg, get_bar(), args.bar_class, labels))
+            else:
+                for _ in range(random.randint(1, 2)):  # 1-2 separate codes per image
+                    if random.random() < 0.55:
+                        paste_code(bg, get_qr(), args.qr_class, labels)
+                    else:
+                        paste_code(bg, get_bar(), args.bar_class, labels)
             if not labels:
                 continue
             bg = degrade(bg)

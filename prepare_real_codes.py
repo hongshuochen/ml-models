@@ -229,9 +229,47 @@ def oversample(out: Path, prefixes, k: int):
     print(f"oversample x{k} of {len(targets)} real-QR imgs -> +{made}")
 
 
+def extract_patches(out: Path, qr_prefixes, bar_prefixes, min_px: int):
+    """Crop the labelled real code boxes out of real_codes/train into a patch pool (qr/ and bar/),
+    so the synth pipeline can paste REAL code crops (real texture) as small adjacent pairs."""
+    img_dir = Path("datasets/real_codes/images/train")
+    lab_dir = Path("datasets/real_codes/labels/train")
+    (out / "qr").mkdir(parents=True, exist_ok=True)
+    (out / "bar").mkdir(parents=True, exist_ok=True)
+    nq = nb = 0
+    for lf in lab_dir.glob("*.txt"):
+        name = lf.stem
+        if "_ov" in name:  # skip oversample duplicates
+            continue
+        is_qr = any(name.startswith(p) for p in qr_prefixes)
+        is_bar = any(name.startswith(p) for p in bar_prefixes)
+        if not (is_qr or is_bar):
+            continue
+        imgs = list(img_dir.glob(name + ".*"))
+        if not imgs:
+            continue
+        im = Image.open(imgs[0]).convert("RGB")
+        W, H = im.size
+        for i, ln in enumerate(lf.read_text().splitlines()):
+            p = ln.split()
+            if len(p) < 5:
+                continue
+            c, cx, cy, w, h = p[0], *map(float, p[1:5])
+            x1, y1 = int((cx - w / 2) * W), int((cy - h / 2) * H)
+            x2, y2 = int((cx + w / 2) * W), int((cy + h / 2) * H)
+            x1, y1, x2, y2 = max(0, x1), max(0, y1), min(W, x2), min(H, y2)
+            if x2 - x1 < min_px or y2 - y1 < min_px:
+                continue
+            if c == "2" and is_qr:
+                im.crop((x1, y1, x2, y2)).save(out / "qr" / f"{name}_{i}.png"); nq += 1
+            elif c == "3" and is_bar:
+                im.crop((x1, y1, x2, y2)).save(out / "bar" / f"{name}_{i}.png"); nb += 1
+    print(f"patches: qr={nq} bar={nb} -> {out}")
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["qr", "bc", "mipt", "boof", "kolabit", "oversample"])
+    ap.add_argument("mode", choices=["qr", "bc", "mipt", "boof", "kolabit", "oversample", "patches"])
     ap.add_argument("--src")
     ap.add_argument("--parquet", nargs="*")
     ap.add_argument("--out", required=True)
@@ -255,6 +293,8 @@ def main():
         convert_boof(Path(args.src), out, args.qr_class, args.val_frac, args.seed)
     elif args.mode == "kolabit":
         convert_kolabit(Path(args.src), out, args.qr_class)
+    elif args.mode == "patches":
+        extract_patches(out, ["ds1", "boof_", "kola_"], ["bc_"], min_px=48)
     else:
         oversample(out, args.prefixes, args.k)
 
