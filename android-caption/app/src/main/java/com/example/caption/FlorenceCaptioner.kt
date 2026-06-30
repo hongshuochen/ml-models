@@ -35,7 +35,7 @@ class FlorenceCaptioner(modelDir: File, private val tok: BartTokenizer) {
         val t0 = SystemClock.elapsedRealtime()
 
         // 1) image -> features [1, nImg, 768]
-        val pxT = OnnxTensor.createTensor(env, fbuf(preprocess(bitmap)), longArrayOf(1, 3, IMG, IMG))
+        val pxT = OnnxTensor.createTensor(env, fbuf(preprocess(bitmap)), longArrayOf(1, 3, IMG.toLong(), IMG.toLong()))
         val imgFeat = vision.run(mapOf("pixel_values" to pxT))[0] as OnnxTensor
         val nImg = imgFeat.info.shape[1].toInt()
         val combined = FloatArray((nImg + tok.promptIds(task).size) * D)
@@ -50,7 +50,7 @@ class FlorenceCaptioner(modelDir: File, private val tok: BartTokenizer) {
 
         // 3) encoder (keep hidden states + mask alive for the whole decode loop)
         val amaskT = OnnxTensor.createTensor(env, lbuf(LongArray(len) { 1L }), longArrayOf(1, len.toLong()))
-        val encEmbT = OnnxTensor.createTensor(env, fbuf(combined), longArrayOf(1, len.toLong(), D))
+        val encEmbT = OnnxTensor.createTensor(env, fbuf(combined), longArrayOf(1, len.toLong(), D.toLong()))
         val ehs = encoder.run(mapOf("inputs_embeds" to encEmbT, "attention_mask" to amaskT))[0] as OnnxTensor
         encEmbT.close()
 
@@ -59,7 +59,7 @@ class FlorenceCaptioner(modelDir: File, private val tok: BartTokenizer) {
         val out = ArrayList<Int>()
         for (step in 0 until maxNew) {
             val decEmbT = OnnxTensor.createTensor(
-                env, fbuf(embedTokens(decIds.toLongArray())), longArrayOf(1, decIds.size.toLong(), D))
+                env, fbuf(embedTokens(decIds.toLongArray())), longArrayOf(1, decIds.size.toLong(), D.toLong()))
             val res = decoder.run(
                 mapOf("encoder_attention_mask" to amaskT, "encoder_hidden_states" to ehs, "inputs_embeds" to decEmbT),
                 setOf("logits"))
@@ -91,8 +91,8 @@ class FlorenceCaptioner(modelDir: File, private val tok: BartTokenizer) {
     }
 
     private fun preprocess(bmp: Bitmap): FloatArray {
-        val scaled = Bitmap.createScaledBitmap(bmp, IMG.toInt(), IMG.toInt(), true)
-        val n = IMG.toInt()
+        val scaled = Bitmap.createScaledBitmap(bmp, IMG, IMG, true)
+        val n = IMG
         val px = IntArray(n * n)
         scaled.getPixels(px, 0, n, 0, 0, n, n)
         if (scaled != bmp) scaled.recycle()
@@ -118,7 +118,7 @@ class FlorenceCaptioner(modelDir: File, private val tok: BartTokenizer) {
     }
 
     companion object {
-        private const val IMG = 768L
+        private const val IMG = 768
         private const val D = 768
         private const val EOS = 2L
         private val MEAN = floatArrayOf(0.485f, 0.456f, 0.406f)
