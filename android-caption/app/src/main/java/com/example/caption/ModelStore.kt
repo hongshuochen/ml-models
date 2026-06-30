@@ -39,7 +39,10 @@ object ModelStore {
         var conn = open(current)
         var redirects = 0
         while (conn.responseCode in 300..399 && redirects < 5) {
-            current = conn.getHeaderField("Location")
+            // HF redirects can be RELATIVE (e.g. "/api/resolve-cache/..."); resolve against the
+            // current URL so we don't feed a scheme-less path into URL() ("no protocol").
+            val loc = conn.getHeaderField("Location") ?: break
+            current = URL(URL(current), loc).toString()
             conn.disconnect()
             conn = open(current)
             redirects++
