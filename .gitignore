@@ -25,3 +25,6 @@ bench/
 .DS_Store
 *.swp
 landmark_check.png
+
+# downloaded ONNX models for the caption app (auto-fetched)
+models/
