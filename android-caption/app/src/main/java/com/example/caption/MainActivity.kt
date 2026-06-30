@@ -9,6 +9,7 @@ import android.os.Looper
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import com.example.caption.databinding.ActivityMainBinding
 import java.io.File
 import java.util.concurrent.Executors
@@ -30,12 +31,32 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) captionUri(uri)
     }
 
+    private var cameraUri: Uri? = null
+    private val takePhoto = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) cameraUri?.let { captionUri(it) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
         b.pickButton.setOnClickListener { pick.launch("image/*") }
+        b.cameraButton.setOnClickListener { launchCamera() }
         loadModel()
+    }
+
+    /** Capture a full-res photo with the system camera app (no CAMERA permission needed). */
+    private fun launchCamera() {
+        val dir = File(cacheDir, "captures").apply { mkdirs() }
+        val file = File(dir, "shot_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        cameraUri = uri
+        takePhoto.launch(uri)
+    }
+
+    private fun setInputsEnabled(on: Boolean) {
+        b.pickButton.isEnabled = on
+        b.cameraButton.isEnabled = on
     }
 
     private fun loadModel() = io.execute {
@@ -50,9 +71,9 @@ class MainActivity : AppCompatActivity() {
             val cap = FlorenceCaptioner(dir, BartTokenizer(File(dir, "vocab.json")))
             captioner = cap
             main.post {
-                b.status.text = "Model ready — Florence-2-base-ft (int8). Pick an image."
+                b.status.text = "Model ready — Florence-2-base-ft (int8). Take or pick a photo."
                 b.progress.visibility = View.GONE
-                b.pickButton.isEnabled = true
+                setInputsEnabled(true)
             }
         } catch (e: Throwable) {
             main.post {
@@ -75,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         b.preview.setImageBitmap(bmp)
         b.caption.text = "Captioning…"
         b.latency.text = ""
-        b.pickButton.isEnabled = false
+        setInputsEnabled(false)
         val t = task()
         io.execute {
             try {
@@ -83,10 +104,10 @@ class MainActivity : AppCompatActivity() {
                 main.post {
                     b.caption.text = text
                     b.latency.text = "Florence-2-base-ft · int8 · $ms ms"
-                    b.pickButton.isEnabled = true
+                    setInputsEnabled(true)
                 }
             } catch (e: Throwable) {
-                main.post { b.caption.text = "Caption failed: ${e.message}"; b.pickButton.isEnabled = true }
+                main.post { b.caption.text = "Caption failed: ${e.message}"; setInputsEnabled(true) }
             }
         }
     }

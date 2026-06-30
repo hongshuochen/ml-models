@@ -6,8 +6,10 @@ head-to-head Florence-2 beat **SmolVLM-256M** on both quality *and* speed (2–4
 fewer hallucinations), so this app ships Florence-2.
 
 ## What it does
-Pick an image → choose a task (**Caption** / **Detailed** / **More detailed**) → get an on-device
-caption + latency. No network at inference time (only the one-time model download).
+**Take a photo** (system camera, full-res) or **pick an image** → choose a task (**Caption** /
+**Detailed** / **More detailed**) → get an on-device caption + latency. No network at inference time
+(only the one-time model download). Camera uses the system camera app via an intent (no CAMERA
+permission); shots go to `cacheDir/captures` through a `FileProvider`.
 
 ## How it works
 Pure ONNX Runtime, four components, **no KV cache** (the with-past export has a static-length bug;

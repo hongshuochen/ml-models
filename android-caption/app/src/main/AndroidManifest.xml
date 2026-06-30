@@ -3,6 +3,10 @@
 
     <!-- The 4 ONNX model files (~261 MB int8) are downloaded from Hugging Face on first launch. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Camera is optional (we use the system camera app via an intent, so no CAMERA permission). -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -18,5 +22,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
