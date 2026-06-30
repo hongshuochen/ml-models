@@ -171,6 +171,12 @@ Real QR **0.17→0.73–0.79**, real barcode **0.15→0.95**, no face/hand regre
 dyn-range **0.78 MB** (mAP@50 lossless on the tflite; real qr 0.718 / barcode 0.949). Detection ≠
 decoding — the Android app pairs it with an on-device **ML Kit** decoder.
 
+**v3 (deployed): small / dense / adjacent codes.** Added adjacent-small-pair synthesis (generated +
+real code crops, `datasets/real_pairs`) so two close small codes (a QR next to a barcode) are caught.
+Held-out small-pair eval **qr 0.71→0.91 / barcode 0.73→0.92**, no regression. `pico_qrbar_real3.pt`.
+(Small-object floor remains: a ~80 px dense QR in a wide frame is borderline — hold codes ≳25–30 % of
+frame, or lower the app's detector threshold.)
+
 ### Hand-landmark regressors — 224² crop · 21 keypoints
 PCK@0.1 on hand-keypoints val (true GT) and the held-out HaGRID val (vs MediaPipe labels).
 

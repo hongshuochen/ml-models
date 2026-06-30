@@ -297,6 +297,16 @@ the Android `face_hand_qr_bar.tflite`. `runs/detect/face_hand_qr_bar_real2/` (`p
 BoofCV's hardest categories (damaged / pathological / extreme glare, recall ~0.60) are the floor for a
 model this small. (Warm-start from the synthetic-only pico → `face-hand-qr-bar-real.yaml`.)
 
+**v3 — small / dense / adjacent codes (now deployed).** A real test (a small QR next to a barcode)
+was missed at 640: a dense QR shrunk to ~80 px blurs out (coarse barcodes survive). Fix: enhanced
+synth (`synth_qr_barcode.py` v2 `paste_pair` — adjacent small pairs, denser QR) + **real-patch**
+adjacent small pairs (`--real-patches` over crops cut by `prepare_real_codes.py patches` →
+`datasets/real_pairs`). Held-out small-pair eval **qr 0.71→0.91 / barcode 0.73→0.92**, no regression
+on the other real sets (barcode 0.95, face/hand unchanged). The tiny ~80 px screenshot QR now fires
+(conf ~0.24, up from undetected) — still a small-object limit of the P3-less pico, but solid once the
+code is ≳25–30 % of frame. Deployed: `runs/detect/face_hand_qr_bar_real3/` (`pico_qrbar_real3.pt`),
+int8 dyn-range 0.78 MB (lossless: small-pairs qr 0.911 / barcode 0.931).
+
 ## Key findings
 
 - **float16 = best deployment choice**: identical accuracy to float32 at **half the
