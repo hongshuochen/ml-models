@@ -18,9 +18,25 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
 - `prepare_*.py`, `build_face_hand.py` — dataset builders (WIDER, face-hand, HaGRID detect/landmark).
 - `train_hand_landmark.py` — landmark regressor trainer (multi-backbone, multi-data, `--eval-only`).
 - `export_landmark.py` — landmark torch→ONNX→TFLite. `bench_latency.py` — TFLite CPU latency.
-- `webcam-tflite/` — in-browser app. `runs/` (weights) + `datasets/` are **git-ignored**.
+- `synth_qr_barcode.py` — synth QR/barcode detection data (perspective/blur/small + adjacent pairs;
+  `--real-patches` pastes real code crops). `prepare_real_codes.py` — convert real QR/barcode
+  datasets → our 4-class YOLO layout (qr=2, barcode=3). Configs: `face-hand-qr-bar*.yaml`.
+- `android/` — native face/hand app (now 4-class detector + model selector + ML Kit code decode).
+  `android-caption/` — separate on-device captioning app (Florence-2-base-ft via ONNX Runtime).
+- `webcam-tflite/` — in-browser app. `runs/` + `datasets/` + `models/` are **git-ignored**.
 
 ## Gotchas (hard-won — read before changing related code)
+- **Synthetic-only code detectors collapse on REAL photos.** The synth-only 4-class
+  face/hand/qr/barcode pico scored 0.95 on synthetic but real qr 0.17 / barcode 0.15. Always eval on
+  a real held-out set; fixed with real data + a hardened synth (MODELS_REPORT §7.6). **2D codes
+  (DataMatrix/Aztec/PDF417) are NOT trained** — only QR + 1D. Vertical barcodes are fine (real data
+  is ~41% vertical). **Small/dense QR is missed at the deployed 640** when <~25–30% of frame (dense
+  modules blur after downscale; barcodes survive) — detects fine close-up / at imgsz 1280.
+- **Florence-2 ONNX caption (android-caption/): the KV-cache export is broken** — `decoder_with_past_model`
+  has a static-16 `inputs_embeds`. Decode WITHOUT a cache (run `decoder_model` on the growing
+  sequence; vision encoder runs once). Tokenizer is DIY (hardcoded prompt ids + byte-level decode
+  from `vocab.json`) — DJL's native tokenizer has no Android ABIs. Spec verified in
+  `android-caption/florence_onnx_demo.py`.
 - **YOLO26 is NMS-free / end-to-end.** Detect output `(1,300,6)` = `[x1,y1,x2,y2,conf,cls]`; pose `(1,300,69)`.
 - **hand-keypoints `flip_idx` is broken upstream** → always use `hand-keypoints-fixed.yaml` (identity flip_idx); the stock one scrambles mirrored-hand keypoints.
 - **Web app must use float16/float32 — NOT int8.** tfjs-tflite's WASM runtime can't initialize
