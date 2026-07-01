@@ -16,3 +16,4 @@ local.properties
 !app/src/main/assets/face_landmark.tflite
 !app/src/main/assets/l_gesture.tflite
 !app/src/main/assets/face_embed.tflite
+!app/src/main/assets/golf.tflite

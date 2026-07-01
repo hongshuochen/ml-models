@@ -207,3 +207,31 @@ uv run python train_hand_landmark.py --backbone mobilenetv3_small_025 --no-pretr
 ```
 → dorsal PCK **0.44 → 0.82**; palm unchanged (webcam 0.905→0.898, hand-keypoints 0.923→0.920).
 The L-gesture MLP is not retrained (mirror-invariant features).
+
+## 11. Golf detector — ball + club_head (egocentric AR-glasses / phone)
+2-class detector. Data = golf-driver-tracker (Roboflow salo-levy-nlqrn v2, CC BY 4.0) remapped to
+{ball, club_head} (club-handle dropped). Source is THIRD-PERSON → this yolo26x is a teacher /
+appearance prior; the egocentric viewpoint gap is closed later by our own AR-glasses/phone footage
+(auto-labeled by this teacher). Full rationale in GOLF_PLAN.md.
+```bash
+# 1) data: golf/preview_datasets.py downloads golf-driver-tracker -> datasets/golf_preview/
+#    (needs a Roboflow key at golf/.roboflow_key). Then remap to 2 classes:
+uv run python prepare_golf.py                        # -> datasets/golf/{train,valid,test} (+ golf.yaml)
+# 2) train the teacher (biggest model; auto-batch on a 10GB 3080; early-stop patience 30):
+uv run yolo detect train model=yolo26x.pt data=golf.yaml imgsz=640 epochs=100 batch=-1 \
+  patience=30 name=golf_detect_x_640                 # -> runs/detect/golf_detect_x_640
+```
+→ `runs/detect/golf_detect_x_640/` (early-stop ep69/99, 5.7 h, batch=4 + expandable_segments).
+val mAP50 **0.80** (ball 0.79 / club_head 0.81); **test mAP50 0.735** (ball 0.693 R0.64 / club_head 0.777 R0.72).
+Precision high (~0.88); ball recall lower (small object). This is the third-person teacher — see GOLF_PLAN/GOLF_COLLECTION for the egocentric next step.
+
+Student (deployed on phone — matches the teacher at 6× smaller):
+```bash
+uv run yolo detect train model=yolo26s.pt data=golf.yaml imgsz=640 epochs=100 batch=16 \
+  patience=30 name=golf_detect_s_640               # -> runs/detect/golf_detect_s_640 (ep92, 1.1 h)
+uv run yolo export model=runs/detect/golf_detect_s_640/weights/best.pt format=tflite imgsz=640 device=cpu
+cp runs/detect/golf_detect_s_640/weights/best_saved_model/best_float16.tflite android/app/src/main/assets/golf.tflite
+```
+→ val mAP50 0.797 / test 0.765 / **test leakage-free 0.669** (ball 0.612 / club_head 0.725) ≈ the x teacher, but
+**19 MB f16** (vs 112 MB). Wired into `android/` as `DetectorModel.GOLF` ("ball","club_head"); APK builds + packages it.
+NOTE: pHash shows the Roboflow test split has ~48% near-dup leakage from train → use **0.669** (leakage-free) as the honest number.

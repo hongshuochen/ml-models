@@ -1,0 +1,19 @@
+# 2-class golf detector: ball + club_head (egocentric AR-glasses / phone target).
+#
+# Data: golf-driver-tracker (Roboflow, salo-levy-nlqrn, v2, CC BY 4.0), remapped by
+#   prepare_golf.py:  golf-ball -> ball (0),  golf club-head -> club_head (1),
+#   and golf club-handle is DROPPED (we don't model the grip/shaft; see GOLF_PLAN.md).
+# NOTE: this source is THIRD-PERSON (broadcast/tripod). It gives the teacher an appearance
+#   prior for how a ball / club head look; the egocentric viewpoint gap is closed later by
+#   our own AR-glasses/phone footage (auto-labeled by the teacher trained from this).
+#
+# Build:  uv run python prepare_golf.py
+# Train:  see TRAINING.md (golf_detect_x_640).
+path: /home/max/2026/ml-models/datasets
+train: golf/train/images
+val: golf/valid/images
+test: golf/test/images
+
+names:
+  0: ball
+  1: club_head
