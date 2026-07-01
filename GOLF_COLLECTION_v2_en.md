@@ -7,16 +7,16 @@
 - **Clubs: 6** — driver, 3-wood, hybrid, 7-iron, wedge, putter.
 - **Balls: 4** — white (shoot the most), optic-yellow, striped range ball, scuffed old white. **Non-white balls should be ~20–30% of the total**, not a token few. Striped ball only at the bay; yellow and old-white should appear in both settings.
 - **Setting: record at 30fps.** Look at the ball; tilt your head down slightly so the ball and club head are in frame; re-adjust the head-down angle when you change clubs (the driver ball position is more forward/wider).
-- **Key:** when actually hitting, you'll instinctively look up to follow the ball → the club head leaves the frame. **Keep your eyes on the ball at impact and look up a beat later.** You only need the ball + club head in frame *at address*; it's fine if the club head leaves frame at the top of the backswing — don't force your chin down.
-- Bright light, sun behind the camera, keep your shadow off the ball; but also collect **static shots (address, putting) in overcast, tree shade, dusk, and indoor light** for variety.
+- **Just play naturally** — don't change anything for the camera. As long as the ball + club head are in frame at address, that's enough; it's fine if they leave the frame during the swing.
+- **Collect all kinds of light** (sun, overcast, shade, dusk, indoor). Brighter is clearer at 30fps, but **let real situations happen — the ball in your own shadow, backlight, etc. — don't avoid them.**
 - When switching person or place, **do a 10-second test-record + playback** first — also lock your stance distance and check battery + that the glasses aren't overheating.
 
-## Record in short segments (each ≤ 1 minute)
-- Shoot everything as **short clips**; start recording just before the action (a swing is ~10–20 s; 1 min is plenty) — don't waste the clip waiting.
-- **Start each clip with a running number** (don't reset all day) + person → club → ball → place → action, in a fixed order with consistent wording. e.g. "Number 037, Ming, 7-iron, white ball, hitting bay, full swing." Also **hold up a number card to the camera for ~2 s.**
+## One action per clip
+- **Record one action (one swing or one putt) per clip:** press start before the action, press stop after it finishes (through the follow-through / ball settled), then start fresh for the next one. Each clip is naturally short — it won't hit the ~1-minute cap and won't get cut off.
+- After starting, **say the running number** (don't reset all day) + person → club → ball → place → action, consistent wording, and hold up a number card for ~2 s. e.g. "Number 037, Ming, 7-iron, white ball, hitting bay, full swing."
+- **Press stop a few seconds AFTER the follow-through / after the ball stops** — don't cut the ending short.
 - **Shoot several clips of the same combo, changing only one variable at a time.**
-- **If a clip gets cut off (action incomplete), discard it** — re-shoot the whole action and say "retake."
-- Keep a **paper/phone checklist** per clip: number | person | club | ball | place | action | good/retake.
+- Keep a **paper/phone checklist** per clip: number | person | club | ball | place | action.
 
 ## Hitting bay (the bulk of the footage)
 - **Address stills (most important — shoot lots).** Do the full-swing volume for all 6 clubs here.
@@ -33,7 +33,6 @@
 - Book an early / quiet tee time; call out the slate quietly while walking; battery is limited — bring a power bank, back up every few holes, and only shoot a few holes + the practice green.
 
 ## Delivery
-- **The ball in flight is too fast to capture** — focus on the ball at rest, address, and putting; don't chase ball flight.
 - About **10–15% negatives**: no-ball frames, club-head-only (no ball), other people, and **round white things that aren't golf balls** (practice-ball piles, cups, litter).
 - **Back up every 15–20 clips or at every break**, check the count against the checklist before clearing the glasses; **rename files the same day per the checklist** (date_place_person_club_ball_action_number).
 - **Spot-check playback of a few clips at midday and end of day** — confirm nothing got cut off and the slates match.
