@@ -235,3 +235,21 @@ cp runs/detect/golf_detect_s_640/weights/best_saved_model/best_float16.tflite an
 → val mAP50 0.797 / test 0.765 / **test leakage-free 0.669** (ball 0.612 / club_head 0.725) ≈ the x teacher, but
 **19 MB f16** (vs 112 MB). Wired into `android/` as `DetectorModel.GOLF` ("ball","club_head"); APK builds + packages it.
 NOTE: pHash shows the Roboflow test split has ~48% near-dup leakage from train → use **0.669** (leakage-free) as the honest number.
+
+### 11b. Dedup + more data → golf_v3 (DEPLOYED, replaces golf_detect_s_640)
+Two problems fixed: (a) Roboflow splits are video-frame-leaky (~48% near-dups), and driver-tracker's 6350 imgs =
+only ~1933 unique scenes; (b) single dataset = data-limited. `golf/build_golf_v2.py` / `build_golf_v3.py` do pHash
+union-find dedup + cluster-disjoint splits (0 cross-split leakage), and merge VETTED extra data:
+Tidbury `jonathan-tidbury-kt5x7/golf-club-head` (club_head, clean) + uentu `golfball-p12jg/golf-ball-uentu` (ball, distant).
+REJECTED after visual vetting: `golf-driver/golf-drivers` (black cutout-aug baked into images), `golf-balls/golf-ball-tracker-sksye` (320px crop junk), `club-head-tracking/golf-club-tracking` (seg junk).
+```bash
+# download the extra sets via golf/preview_datasets.py-style roboflow pulls, then merge + dedup:
+uv run python golf/build_golf_v3.py     # driver-tracker + Tidbury + uentu(cap 8000) -> datasets/golf_v3 (12155 unique scenes, 0 leakage) + golf_v3.yaml
+uv run yolo detect train model=yolo26s.pt data=golf_v3.yaml imgsz=640 epochs=100 batch=16 patience=25 \
+  mixup=0.1 copy_paste=0.1 name=golf_detect_s_v3_640
+uv run yolo export model=runs/detect/golf_detect_s_v3_640/weights/best.pt format=tflite imgsz=640 device=cpu
+cp runs/detect/golf_detect_s_v3_640/weights/best_saved_model/best_float16.tflite android/app/src/main/assets/golf.tflite
+```
+→ **DEPLOYED** as android golf.tflite (19 MB f16). Honest metric (STRICT hamming≤10-dedup test, 377 fully-novel imgs):
+mAP50 **0.898** (ball 0.918 **recall 0.855** / club_head 0.879). vs golf_v2 (deduped driver-tracker only) ~0.85, vs original
+leakage-free 0.669 — **ball recall 0.56 → 0.855**. Still third-person; egocentric gap = our own capture (GOLF_COLLECTION_v2).
