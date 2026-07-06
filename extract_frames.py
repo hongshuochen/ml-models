@@ -27,13 +27,15 @@ def main():
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    vids = sorted(glob.glob(args.videos + "/golf_*.mp4"))
+    # videos live in dated subdirs (datasets/golf_videos/2025-07-05/golf_001.mp4, ...)
+    vids = sorted(glob.glob(args.videos + "/**/golf_*.mp4", recursive=True))
     total = 0
     for v in vids:
         c = cv2.VideoCapture(v)
         fps = c.get(cv2.CAP_PROP_FPS) or 30.0
         step = max(1, int(round(fps / args.fps)))
-        stem = Path(v).stem
+        # tag frames with the date-dir so names stay unique across days (2025-07-05_golf_001_...)
+        stem = f"{Path(v).parent.name}_{Path(v).stem}"
         last = None
         fi = -1
         kept = 0
