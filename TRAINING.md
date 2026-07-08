@@ -253,3 +253,42 @@ cp runs/detect/golf_detect_s_v3_640/weights/best_saved_model/best_float16.tflite
 → **DEPLOYED** as android golf.tflite (19 MB f16). Honest metric (STRICT hamming≤10-dedup test, 377 fully-novel imgs):
 mAP50 **0.898** (ball 0.918 **recall 0.855** / club_head 0.879). vs golf_v2 (deduped driver-tracker only) ~0.85, vs original
 leakage-free 0.669 — **ball recall 0.56 → 0.855**. Still third-person; egocentric gap = our own capture (GOLF_COLLECTION_v2).
+
+### 11c. Egocentric fine-tune → s_v1 / s_v2 (our own AR-glasses footage; closes the viewpoint gap)
+236 self-captured egocentric videos (`datasets/golf_videos/<date>/golf_*.mp4`, portrait 2048×1536, ~168 min).
+Pipeline (each step a committed script under `golf/`):
+```bash
+# 1. frames -> pre-labels. extract_frames.py already ran (19,700 frames -> datasets/golf_frames).
+uv run python golf/prelabel_frames.py            # golf_v3_1280 @imgsz1280, dir-stream -> golf_prelabels/labels
+#    (GDINO open-vocab was tried as pre-labeler -> NON-VIABLE on egocentric: golf/prelabel_gdino.py,
+#     thr0.30 silent / thr0.15 giant garbage boxes. YOLO boxes are the right size; use it.)
+# 2. first-person filter (drop 3rd-person = someone else's swing filmed at distance)
+uv run python golf/detect_firstperson.py datasets/golf_prelabels/all_frames.txt --th-h 0.15 --th-top 0.60
+#    COCO person det: third = person box height>0.15 AND top<0.60. ~38% third-person removed (11,716 first-person).
+# 3. Label Studio (isolated: uv tool install label-studio; see memory golf-label-studio):
+uv run python golf/build_v1_labelset.py          # first-person, ~0.2fps even subset, STRIP club_head prelabels
+uv run python golf/make_ls_tasks.py              # -> ls_tasks_v1.json (import to LS project; local-files serving)
+#    -> 2 people hand-corrected 1,912 frames (ball fix + club_head drawn fresh).
+# 4. export LS (YOLO) -> dataset split BY VIDEO (no per-frame random split = leakage), then fine-tune:
+uv run python golf/build_golf_v1_dataset.py      # train 1,622 / val 290 (split by video) -> golf_ego_v1.yaml
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run yolo detect train \
+  model=runs/detect/golf_detect_s_v3_1280/weights/best.pt data=golf_ego_v1.yaml imgsz=1280 epochs=100 \
+  batch=6 patience=30 mixup=0.1 copy_paste=0.1 name=golf_ego_v1_1280    # OMIT project= (else save_dir doubles)
+```
+**s_v1** (fine-tune golf_v3_1280, ep25) on the real egocentric val — the whole payoff is club_head:
+**club_head mAP50 0.032 → 0.877** (public golf_v3 is BLIND to egocentric heads); ball ~held 0.882→0.861 but
+**ball recall dipped 0.847→0.772** (egocentric-only forgetting). Weights: `runs/detect/runs/detect/golf_ego_v1_1280/`.
+```bash
+# 5. pseudo-label expansion (chosen over a yolo26x teacher: x@960->batch2->~30h on the 10GB card = bad ROI).
+uv run python golf/autolabel_firstperson.py 0.35 # s_v1 auto-labels the 9,804 un-hand-labeled first-person frames
+uv run python golf/build_golf_v2_dataset.py      # train = 1,622 hand + 4,735 pseudo (non-val-video, >=1 det); val unchanged
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True uv run yolo detect train \
+  model=runs/detect/golf_detect_s_v3_1280/weights/best.pt data=golf_ego_v2.yaml imgsz=1280 epochs=100 \
+  batch=6 patience=30 mixup=0.1 copy_paste=0.1 name=golf_ego_v2_1280
+```
+**s_v2** (hand+pseudo 4×, ep20) vs s_v1 on the SAME val: **precision up across the board** (ball P 0.865→0.909,
+ALL P 0.906→0.933 — pseudo-positives made it MORE precise despite fewer negatives), **club_head mAP50 0.877→0.903**,
+ball recall 0.772→**0.787**, ALL mAP50-95 0.604→0.623. Weights: `runs/detect/golf_ego_v2_1280/weights/best.pt`.
+Demo on held-out videos: `uv run python golf/annotate_video.py <vid> --model runs/detect/golf_ego_v2_1280/weights/best.pt --imgsz 1280 --conf 0.3`.
+**Ball recall (~0.79) is the standing weakness** (small white-on-white egocentric ball) — next: more hand-labeled ball /
+SAHI / higher-res / TrackNet-style temporal (GOLF_PLAN §D). NOT yet exported to TFLite / deployed.

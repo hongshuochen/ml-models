@@ -1,0 +1,6 @@
+path: /home/max/2026/ml-models/datasets
+train: golf_v3_test_strict/images
+val: golf_v3_test_strict/images
+names:
+  0: ball
+  1: club_head

@@ -1,0 +1,8 @@
+<View>
+  <!-- Golf egocentric 2-class detection: ball, club_head. Pre-labeled by golf_v3_1280 (correct: delete sun->ball FPs, add misses). -->
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false"/>
+  <RectangleLabels name="label" toName="image" strokeWidth="2" opacity="0.4">
+    <Label value="ball" background="#e6194b" hotkey="1"/>
+    <Label value="club_head" background="#3cb44b" hotkey="2"/>
+  </RectangleLabels>
+</View>
