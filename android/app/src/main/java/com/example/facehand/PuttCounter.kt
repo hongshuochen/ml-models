@@ -23,6 +23,7 @@ class PuttCounter(
     private val addressFrames: Int = 4,    // frames of "low" needed to arm an address
     private val confirmFrames: Int = 8,    // frames the separation must persist to count a putt
     private val cooldownFrames: Int = 40,  // min frames between putts (~1.3 s @30fps)
+    private val resetGapFrames: Int = 5,   // no-club gap > this -> drop a stale ADDRESS (anti false-alarm)
 ) {
     enum class State { WAITING_ADDRESS, ADDRESSED, SEPARATING }
 
@@ -34,38 +35,50 @@ class PuttCounter(
     private var lowStreak = 0
     private var sepStart = 0
     private var lastPutt = -10_000
+    private var gap = 0            // consecutive frames with no club detected
+    private var sawBall = false    // a real ball was seen AT the putter this address cycle
 
     /** Feed one frame's detections. Returns true exactly on the frame a putt is counted. */
     fun update(detections: List<Detection>): Boolean {
         frame++
         val d = nearestDistance(detections)   // null = no club (unknown); BIG = ball gone/far
         lastDistance = d ?: Float.NaN
-        if (d == null) return false            // can't judge without the putter — hold state
+        if (d == null) {
+            // A sustained no-club gap (wearer walking / looking away) drops a stale ADDRESS, so the
+            // putter reappearing WITHOUT a ball can't be read as a strike (the false-alarm we saw).
+            if (++gap > resetGapFrames) { state = State.WAITING_ADDRESS; lowStreak = 0; sawBall = false }
+            return false
+        }
+        gap = 0
 
         var counted = false
         when (state) {
             State.WAITING_ADDRESS -> {
-                if (d <= dLow) { if (++lowStreak >= addressFrames) state = State.ADDRESSED }
+                if (d <= dLow) { if (++lowStreak >= addressFrames) { state = State.ADDRESSED; sawBall = true } }
                 else lowStreak = 0
             }
             State.ADDRESSED -> {
-                if (d >= dHigh) { state = State.SEPARATING; sepStart = frame }   // ball leaving
-                // stays low -> still addressed (small putter wiggles ignored)
+                if (d <= dLow) sawBall = true                                     // a real ball is at the putter
+                if (d >= dHigh) { state = State.SEPARATING; sepStart = frame }    // ball leaving
             }
             State.SEPARATING -> {
                 if (d <= dLow) {
-                    state = State.ADDRESSED                                       // came back = back-stroke, not a putt
+                    state = State.ADDRESSED; sawBall = true                       // came back = back-stroke, not a putt
                 } else if (frame - sepStart >= confirmFrames) {                    // stayed separated = real putt
-                    if (frame - lastPutt >= cooldownFrames) { count++; counted = true; lastPutt = frame }
+                    // require a real ball-at-address this cycle (guards "putter visible, no ball")
+                    if (sawBall && frame - lastPutt >= cooldownFrames) { count++; counted = true; lastPutt = frame }
                     state = State.WAITING_ADDRESS
-                    lowStreak = 0
+                    lowStreak = 0; sawBall = false
                 }
             }
         }
         return counted
     }
 
-    fun reset() { count = 0; state = State.WAITING_ADDRESS; lowStreak = 0; frame = 0; lastPutt = -10_000 }
+    fun reset() {
+        count = 0; state = State.WAITING_ADDRESS; lowStreak = 0; frame = 0; lastPutt = -10_000
+        gap = 0; sawBall = false
+    }
 
     /**
      * Nearest ball→club_head center distance / club_head diagonal.
