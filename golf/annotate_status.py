@@ -166,7 +166,11 @@ def main():
             x1, y1, x2, y2 = map(int, b[:4]); cv2.rectangle(frame, (x1, y1), (x2, y2), BALL_COL, 3)
         for c in clubs:
             x1, y1, x2, y2 = map(int, c[:4]); cv2.rectangle(frame, (x1, y1), (x2, y2), CLUB_COL, 3)
-        # rolling-ball TRAJECTORY after a hit (image-space comet tail)
+        # rolling-ball TRAJECTORY after a hit — GROUND-ANCHORED: past points are propagated
+        # through each frame's camera affine so the tail stays glued to the grass (not the screen)
+        if trail and cams and 0 <= i - 1 < len(cams) and cams[i - 1] is not None:
+            M = cams[i - 1]
+            trail = [(M[0] * x + M[1] * y + M[2], M[3] * x + M[4] * y + M[5]) for x, y in trail]
         if args.no_trail:
             trailing_until = -1
         elif is_hit:
