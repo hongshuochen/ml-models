@@ -1,8 +1,9 @@
 """Annotate a golf video with the HIT-detection STATUS timeline + live count.
 
-Uses the shared ego-invariant hit detector (golf/hit_detector.py, picked by an adversarial
-multi-algorithm eval on real first-person clips). It counts BOTH putts (ball rolls away) and full
-swings (ball vanishes from a stable address) — the on-device twin is android/.../PuttCounter.kt.
+Uses the shared EGO-COMPENSATED hit detector (golf/hit_detector.py v3): pass 1 runs YOLO once and
+simultaneously estimates per-frame CAMERA affines from background optical flow (half-res LK,
+golf/cam_affine.py), so the detector separates true ball motion from head motion. Counts BOTH
+putts (ball rolls away) and full swings (ball vanishes from a stable address).
 
 4 user-facing statuses:
     IDLE     (grey)   - nothing being addressed
@@ -10,21 +11,23 @@ swings (ball vanishes from a stable address) — the on-device twin is android/.
     HIT      (red)    - contact confirmed (ball left the address & didn't come back) -> count++  (flashed)
     FOLLOW   (green)  - just after a hit (ball rolling / flying away)
 
-Two-pass so the HIT flash lands on the real contact frame: pass 1 runs YOLO once and collects
-detections; the detector resolves hit frames; pass 2 re-reads the video (no YOLO) and renders.
+Two-pass so the HIT flash lands on the real contact frame: pass 1 YOLO+flow collects detections;
+the detector resolves hit frames; pass 2 re-reads the video (no YOLO) and renders.
 
 Out: <name>_status.mp4   Run: uv run python golf/annotate_status.py <video> [--imgsz 1280]
+     (--dets-cache/--cams-cache reuse golf/cache_dets.py + golf/cam_affine.py JSONs, skipping YOLO)
 """
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
-from ultralytics import YOLO
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cam_affine import pair_affine
 from hit_detector import detect_hits, track_balls
 
 BALL_COL, CLUB_COL = (0, 0, 255), (0, 200, 0)
@@ -94,6 +97,8 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--d-low", type=float, default=1.6)
     ap.add_argument("--d-high", type=float, default=3.0)
+    ap.add_argument("--dets-cache", default=None, help="cache_dets.py JSON: skip YOLO in pass 1")
+    ap.add_argument("--cams-cache", default=None, help="cam_affine.py JSON: skip flow in pass 1")
     args = ap.parse_args()
 
     src = Path(args.video)
@@ -101,21 +106,35 @@ def main():
     cap = cv2.VideoCapture(str(src))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 3000
+    W0 = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 2048
+    H0 = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1536
     cap.release()
 
-    # ---- pass 1: YOLO once -> per-frame boxes (memory-light) ----
-    m = YOLO(args.model)
-    dets = []   # [{'b': [[x1,y1,x2,y2],...], 'c': [[x1,y1,x2,y2,conf],...]}]
-    for r in m.predict(source=str(src), stream=True, imgsz=args.imgsz, conf=args.conf, device=0, verbose=False):
-        b = [box.xyxy[0].tolist() for box in r.boxes if int(box.cls) == 0]
-        c = [box.xyxy[0].tolist() + [float(box.conf)] for box in r.boxes if int(box.cls) == 1]
-        dets.append({"b": b, "c": c})
+    # ---- pass 1: YOLO + camera affines in one sweep (or load caches) ----
+    if args.dets_cache:
+        dets = json.load(open(args.dets_cache))["frames"]
+        cams = json.load(open(args.cams_cache)) if args.cams_cache else None
+    else:
+        from ultralytics import YOLO
+        m = YOLO(args.model)
+        dets = []   # [{'b': [[x1,y1,x2,y2],...], 'c': [[x1,y1,x2,y2,conf],...]}]
+        cams = []   # per-frame camera affine i -> i+1 (background LK; detections masked)
+        SCALE = 0.5
+        pg = None
+        for r in m.predict(source=str(src), stream=True, imgsz=args.imgsz, conf=args.conf, device=0, verbose=False):
+            b = [box.xyxy[0].tolist() for box in r.boxes if int(box.cls) == 0]
+            c = [box.xyxy[0].tolist() + [float(box.conf)] for box in r.boxes if int(box.cls) == 1]
+            dets.append({"b": b, "c": c})
+            cg = cv2.cvtColor(cv2.resize(r.orig_img, None, fx=SCALE, fy=SCALE), cv2.COLOR_BGR2GRAY)
+            if pg is not None:
+                cams.append(pair_affine(pg, cg, b + [cc[:4] for cc in c], SCALE))
+            pg = cg
     n = len(dets)
 
     # ---- detect hits (offline: aligns the flash to real contact) ----
-    hits, armed = detect_hits(dets, fps)
+    hits, armed = detect_hits(dets, fps, cams=cams, size=(W0, H0))
     hit_set = set(hits)
-    ball_track = track_balls(dets)          # active ball centroid per frame (for the trajectory trail)
+    ball_track = track_balls(dets, fps, cams, size=(W0, H0))   # ball centroid per frame (trajectory trail)
     hit_flash = int(0.4 * fps)
     follow = int(0.8 * fps)
 
