@@ -63,30 +63,29 @@ PAN neck → NMS-free detect head; feature-map sizes shown for the 640×640 devi
 ```mermaid
 flowchart TD
     subgraph BB["Backbone (CSP)"]
-        IN["Input 640×640×3"] --> S1["Conv s2 · 32ch · 320×320"]
-        S1 --> S2["Conv s2 · 64ch · 160×160<br/>+ C3k2"]
-        S2 --> P3["Conv s2 · 128ch · 80×80<br/>+ C3k2  (P3, /8)"]
-        P3 --> P4["Conv s2 · 256ch · 40×40<br/>+ C3k2  (P4, /16)"]
-        P4 --> P5["Conv s2 · 512ch · 20×20<br/>+ C3k2 + SPPF + C2PSA attention  (P5, /32)"]
+        IN["Input 640×640×3"] --> C1["Conv s2 · 32ch · 320×320"]
+        C1 --> C2["Conv s2 · 64ch · 160×160 + C3k2"]
+        C2 --> B3["Conv s2 · 128ch · 80×80 + C3k2"]
+        B3 --> B4["Conv s2 · 256ch · 40×40 + C3k2"]
+        B4 --> B5["Conv s2 · 512ch · 20×20<br/>+ C3k2 + SPPF + C2PSA"]
     end
-
-    subgraph NK["Neck (PAN — top-down then bottom-up)"]
-        P5 -->|"upsample ×2"| U1["Concat + C3k2 · 40×40"]
+    B3 --o P3(["P3 · 80×80"])
+    B4 --o P4(["P4 · 40×40"])
+    B5 --o P5(["P5 · 20×20"])
+    subgraph NK["Neck (PAN)"]
+        P5 --> UP1["upsample ×2 → 40×40"] --> U1["U1 = Concat + C3k2 · 40×40"]
         P4 --> U1
-        U1 -->|"upsample ×2"| N3["Concat + C3k2 · 80×80  (N3)"]
+        U1 --> UP2["upsample ×2 → 80×80"] --> N3["N3 = Concat + C3k2 · 80×80"]
         P3 --> N3
-        N3 -->|"Conv s2"| N4["Concat + C3k2 · 40×40  (N4)"]
+        N3 --> D1["Conv s2 → 40×40"] --> N4["N4 = Concat + C3k2 · 40×40"]
         U1 --> N4
-        N4 -->|"Conv s2"| N5["Concat + C3k2 · 20×20  (N5)"]
+        N4 --> D2["Conv s2 → 20×20"] --> N5["N5 = Concat + C3k2 · 20×20"]
         P5 --> N5
     end
-
-    subgraph HD["Head — anchor-free, end-to-end"]
-        N3 --> DET["Detect (one-to-one assignment, NMS-free)"]
-        N4 --> DET
-        N5 --> DET
-        DET --> OUT["(1, 300, 6)<br/>x1 y1 x2 y2 conf cls"]
-    end
+    N3 --> DET["Detect — one-to-one, NMS-free"]
+    N4 --> DET
+    N5 --> DET
+    DET --> OUT["(1, 300, 6)<br/>x1 y1 x2 y2 conf cls"]
 ```
 
 Reading the diagram:
