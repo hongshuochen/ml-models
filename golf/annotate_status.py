@@ -99,6 +99,7 @@ def main():
     ap.add_argument("--d-high", type=float, default=3.0)
     ap.add_argument("--dets-cache", default=None, help="cache_dets.py JSON: skip YOLO in pass 1")
     ap.add_argument("--cams-cache", default=None, help="cam_affine.py JSON: skip flow in pass 1")
+    ap.add_argument("--no-trail", action="store_true", help="don't draw the post-hit ball trajectory tail")
     args = ap.parse_args()
 
     src = Path(args.video)
@@ -166,7 +167,9 @@ def main():
         for c in clubs:
             x1, y1, x2, y2 = map(int, c[:4]); cv2.rectangle(frame, (x1, y1), (x2, y2), CLUB_COL, 3)
         # rolling-ball TRAJECTORY after a hit (image-space comet tail)
-        if is_hit:
+        if args.no_trail:
+            trailing_until = -1
+        elif is_hit:
             trail = []; trailing_until = i + int(2.5 * fps)
         cur = ball_track[i]
         if i <= trailing_until and cur is not None:
