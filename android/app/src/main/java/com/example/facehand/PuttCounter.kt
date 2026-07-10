@@ -23,7 +23,8 @@ class PuttCounter(
     private val addressFrames: Int = 4,    // frames of "low" needed to arm an address
     private val confirmFrames: Int = 8,    // frames the separation must persist to count a putt
     private val cooldownFrames: Int = 40,  // min frames between putts (~1.3 s @30fps)
-    private val resetGapFrames: Int = 5,   // no-club gap > this -> drop a stale ADDRESS (anti false-alarm)
+    private val maxAddrAgeFrames: Int = 30, // no ball-at-club for > this -> stale address (walking) -> drop
+    private val maxSepFrames: Int = 22,     // a separation must confirm within this -> else stale
 ) {
     enum class State { WAITING_ADDRESS, ADDRESSED, SEPARATING }
 
@@ -35,21 +36,26 @@ class PuttCounter(
     private var lowStreak = 0
     private var sepStart = 0
     private var lastPutt = -10_000
-    private var gap = 0            // consecutive frames with no club detected
-    private var sawBall = false    // a real ball was seen AT the putter this address cycle
+    private var lastAddr = -10_000  // last frame a ball was genuinely AT the club (d <= dLow)
+    private var sawBall = false     // a real ball was seen AT the club this address cycle
 
     /** Feed one frame's detections. Returns true exactly on the frame a putt is counted. */
     fun update(detections: List<Detection>): Boolean {
         frame++
         val d = nearestDistance(detections)   // null = no club (unknown); BIG = ball gone/far
         lastDistance = d ?: Float.NaN
-        if (d == null) {
-            // A sustained no-club gap (wearer walking / looking away) drops a stale ADDRESS, so the
-            // putter reappearing WITHOUT a ball can't be read as a strike (the false-alarm we saw).
-            if (++gap > resetGapFrames) { state = State.WAITING_ADDRESS; lowStreak = 0; sawBall = false }
-            return false
+        if (d != null && d <= dLow) lastAddr = frame
+        // stale address = no ball at the club for a while (walking / looking away) -> drop it, so the
+        // club reappearing without a ball can't fire a false HIT. Skip mid-separation (the ball has
+        // legitimately left the club — a rolling putt / a struck ball flying away).
+        if (state != State.SEPARATING && frame - lastAddr > maxAddrAgeFrames) {
+            state = State.WAITING_ADDRESS; lowStreak = 0; sawBall = false
         }
-        gap = 0
+        // a separation that never confirms within maxSep is stale (a long gap kept it alive) -> discard
+        if (state == State.SEPARATING && frame - sepStart > maxSepFrames) {
+            state = State.WAITING_ADDRESS; lowStreak = 0; sawBall = false
+        }
+        if (d == null) return false            // no putter -> hold; staleness handled above
 
         var counted = false
         when (state) {
@@ -58,7 +64,7 @@ class PuttCounter(
                 else lowStreak = 0
             }
             State.ADDRESSED -> {
-                if (d <= dLow) sawBall = true                                     // a real ball is at the putter
+                if (d <= dLow) sawBall = true                                     // a real ball is at the club
                 if (d >= dHigh) { state = State.SEPARATING; sepStart = frame }    // ball leaving
             }
             State.SEPARATING -> {
@@ -77,7 +83,7 @@ class PuttCounter(
 
     fun reset() {
         count = 0; state = State.WAITING_ADDRESS; lowStreak = 0; frame = 0; lastPutt = -10_000
-        gap = 0; sawBall = false
+        lastAddr = -10_000; sawBall = false
     }
 
     /**
