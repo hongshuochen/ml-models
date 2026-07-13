@@ -16,6 +16,13 @@ everything:
       capped per video (validated earlier: pseudo-label expansion raised precision).
   Frames with no detections are never written (auto-empties reinforce the model's misses).
 
+Temporal consistency runs BOTH directions (both validated on real clips):
+  * a GAP in a track (present before & after, missing between) -> a missed ball -> RECOVER (T2).
+  * an ISOLATED detection (present in one frame, no same-class neighbour before OR after) -> a
+    likely FALSE POSITIVE (sun glint, a smartwatch face, a one-frame motion-blur blob) -> DROPPED,
+    never written. "Support" = a nearby same-class detection within +/-SUPPORT_WIN frames (presence,
+    not track-linking), so a fast rolling ball whose tracker fails to link still counts as supported.
+
 Output (copy this folder back to the training machine):
   OUT_DIR/images/<video-id>_f######.jpg     full-res frames
   OUT_DIR/labels/<video-id>_f######.txt     YOLO labels (class cx cy w h, normalized)
@@ -48,6 +55,9 @@ try:
     from ultralytics import YOLO
 except ImportError:
     sys.exit("pip install ultralytics opencv-python")
+
+SUPPORT_R = 6.0   # diameters: a neighbour-frame same-class det within this supports a detection
+                  # (generous, so a fast rolling ball's next-frame detection still supports it)
 
 
 def vid_id(root: Path, video: Path) -> str:
@@ -175,10 +185,31 @@ def mine_video(model, video: Path, vid: str, out: Path, args):
         if cur is None or conf > cur[1]:
             labels[k][key] = (box, conf, tier)
 
+    # ---- tracks (shared by T2 recovery and the temporal-support FP filter) ----
+    tracks = {cls: build_tracks(dets, cls) for cls in (0, 1)}
+
+    # temporal support: a detection is TRUSTED only if a same-class detection also appears in a
+    # NEARBY position within +/- SUPPORT_WIN neighbour frames. A one-frame blip with no neighbour
+    # is almost always a false positive (sun glint / white flower / blur) -> never written.
+    # This is NEIGHBOUR PRESENCE, not track linking: a fast rolling ball whose tracker fails to
+    # link across stride still has a nearby detection next frame, so it stays supported (not dropped).
+    def is_supported(k, cls, b):
+        cx, cy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+        D = max((b[2] - b[0] + b[3] - b[1]) / 2, 8.0)
+        hits = 0
+        for kk in range(max(0, k - args.support_win), min(n, k + args.support_win + 1)):
+            if kk == k:
+                continue
+            for (bb, _c, cl2) in dets[kk]:
+                if cl2 == cls and math.hypot((bb[0] + bb[2]) / 2 - cx, (bb[1] + bb[3]) / 2 - cy) < SUPPORT_R * D:
+                    hits += 1
+                    break
+        return hits >= args.min_support
+
     # ---- T2: track gaps + low-conf promotions, zoom-verified ----
     t2 = 0
     for cls in (0, 1):
-        for tr in build_tracks(dets, cls):
+        for tr in tracks[cls]:
             if len(tr.obs) < 3:
                 continue
             # (a) gap recovery
@@ -208,23 +239,28 @@ def mine_video(model, video: Path, vid: str, out: Path, args):
                         add(k, cls, got[0], got[1], "promoted")
                         t2 += 1
 
-    # frames worth keeping: any T2 label, or T1 sampling
+    # frames worth keeping: any T2 label, or T1 sampling (confident AND temporally supported)
     keep = set(k for k in range(n) if any(v[2] != "confident" for v in labels[k].values()))
     last = -10 ** 9
     t1 = 0
     for k in range(n):
         if k in frames_px and k - last >= sample_gap and \
-                any(c >= args.conf_keep for (_b, c, _cl) in dets[k]):
+                any(c >= args.conf_keep and is_supported(k, cl, b) for (b, c, cl) in dets[k]):
             keep.add(k)
             last = k
             t1 += 1
     keep = set(list(sorted(keep))[: args.cap_per_video])
 
-    # on kept frames, also write every confident detection (a saved frame must be FULLY labeled)
+    # on kept frames, write every confident detection that has temporal support (a saved frame
+    # must be FULLY labeled; isolated single-frame detections are dropped as likely FPs)
+    fp_dropped = 0
     for k in keep:
         for (b, c, cl) in dets[k]:
             if c >= args.conf_keep:
-                add(k, cl, b, c, "confident")
+                if is_supported(k, cl, b):
+                    add(k, cl, b, c, "confident")
+                else:
+                    fp_dropped += 1        # confident but temporally isolated -> likely FP
 
     # ---- write ----
     (out / "images").mkdir(parents=True, exist_ok=True)
@@ -257,7 +293,7 @@ def mine_video(model, video: Path, vid: str, out: Path, args):
         if new:
             w.writerow(["frame", "video", "src_frame", "tiers", "n_labels"])
         w.writerows(rows)
-    return {"frames": wrote, "t1": t1, "t2": t2,
+    return {"frames": wrote, "t1": t1, "t2": t2, "fp_dropped": fp_dropped,
             "labels": sum(len(labels[k]) for k in keep if k in frames_px)}
 
 
@@ -273,6 +309,11 @@ def main():
     ap.add_argument("--verify-conf", type=float, default=0.30, help="zoom-verify acceptance conf")
     ap.add_argument("--crop", type=int, default=512, help="zoom-verify crop size (px)")
     ap.add_argument("--max-gap", type=int, default=6, help="max track gap (processed frames) to recover")
+    ap.add_argument("--min-support", type=int, default=1,
+                    help="a written detection needs a same-class detection in >= this many neighbour "
+                         "frames; isolated one-frame blips are dropped as likely FPs")
+    ap.add_argument("--support-win", type=int, default=2,
+                    help="neighbour frames each side to look for temporal support")
     ap.add_argument("--sample-every", type=float, default=1.5, help="s between T1 confident samples")
     ap.add_argument("--cap-per-video", type=int, default=80, help="max frames written per video")
     ap.add_argument("--min-bytes", type=int, default=1_000_000,
@@ -303,9 +344,11 @@ def main():
         (out / "stats.json").write_text(json.dumps(stats, indent=1))
         print(f"[{i + 1}/{len(videos)}] {vid}: {s}")
 
-    tot = {k: sum(s.get(k, 0) for s in stats.values() if isinstance(s, dict)) for k in ("frames", "t1", "t2", "labels")}
+    tot = {k: sum(s.get(k, 0) for s in stats.values() if isinstance(s, dict))
+           for k in ("frames", "t1", "t2", "labels", "fp_dropped")}
     print(f"\nDONE: {tot['frames']} frames, {tot['labels']} labels "
-          f"({tot['t2']} zoom-verified recoveries/promotions, {tot['t1']} confident samples)")
+          f"({tot['t2']} zoom-verified recoveries/promotions, {tot['t1']} confident samples, "
+          f"{tot['fp_dropped']} isolated FPs dropped)")
     print(f"Copy '{out}' back to the training machine (images/ + labels/ + manifest.csv).")
 
 
