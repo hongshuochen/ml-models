@@ -22,8 +22,14 @@ Output (set up Label Studio local storage on OUT/images, or just use the YOLO pr
   OUT/ls_tasks.json                          Label Studio import with pre-annotations
   OUT/manifest.csv                           per-frame score breakdown (why it was picked)
 
-Setup:  pip install ultralytics opencv-python ; copy best.pt over
-Run:    python select_review_frames.py /videos out_review --model best.pt --total 500
+For the 3-class extension (adding `hole`): pass `--hole-model` (the bootstrap hole teacher). Its
+hole boxes are merged in as class 2 while ball/club_head come from `--model` (golf_ego_v2) —
+"two-model pre-annotation". The selection then also favours hole sightings and puttable scenes
+where the (weak) teacher missed a hole, so the human labels the new class where it actually occurs.
+
+Setup:  pip install ultralytics opencv-python ; copy best.pt (+ the hole teacher) over
+Run:    python select_review_frames.py /videos out_review --model golf_ego_v2.pt \
+            [--hole-model golf_hole_teacher.pt] --total 500
 """
 import argparse
 import csv
@@ -41,7 +47,8 @@ try:
 except ImportError:
     sys.exit("pip install ultralytics opencv-python")
 
-BALL, CLUB = 0, 1
+BALL, CLUB, HOLE = 0, 1, 2
+LABELS = ["ball", "club_head", "hole"]
 
 
 def vid_id(root: Path, video: Path) -> str:
@@ -66,17 +73,26 @@ def green_frac(bgr) -> float:
 
 
 def uncertainty(dets, green) -> tuple:
-    """(score, reason) from one frame's [(box, conf, cls)] + greenness — tuned for ball recall."""
+    """(score, reason) from one frame's [(box, conf, cls)] + greenness. Weighted for the two
+    scarce/weak classes we most want more labels of: ball (recall) and hole (new class)."""
     n_ball = sum(1 for _b, _c, cl in dets if cl == BALL)
     n_club = sum(1 for _b, _c, cl in dets if cl == CLUB)
-    midconf = sum(1 for _b, c, _cl in dets if 0.20 <= c < 0.50)
+    hole_conf = max((c for _b, c, cl in dets if cl == HOLE), default=0.0)
+    midconf = sum(1 for _b, c, cl in dets if cl in (BALL, CLUB) and 0.20 <= c < 0.50)
     s, why = 0.0, []
+    # ball-recall signals
     if n_club > 0 and n_ball == 0:
         s += 3.0; why.append("club_no_ball")           # ball almost surely present & missed
-    if green > 0.45 and n_ball == 0 and n_club == 0:
+    if green > 0.45 and n_ball == 0 and n_club == 0 and hole_conf == 0:
         s += 1.5; why.append("green_no_det")           # probable total miss in a golf scene
     if midconf:
         s += 0.6 * midconf; why.append(f"midconf{midconf}")
+    # hole signals (new class — every hole example is valuable; the teacher is weak, so BOTH a
+    # hole sighting to verify AND a puttable scene the teacher missed a hole in are worth labeling)
+    if hole_conf > 0:
+        s += 2.0 if hole_conf >= 0.5 else 1.2; why.append("hole_seen")
+    elif green > 0.45 and (n_ball > 0 or n_club > 0):
+        s += 1.0; why.append("putt_no_hole")           # puttable scene, hole likely present & missed
     return s, "+".join(why) if why else "diverse"
 
 
@@ -84,9 +100,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("videos_dir")
     ap.add_argument("out_dir")
-    ap.add_argument("--model", default="best.pt")
+    ap.add_argument("--model", default="best.pt", help="ball+club_head detector (golf_ego_v2)")
+    ap.add_argument("--hole-model", default=None,
+                    help="hole-only teacher weights; if given, its hole boxes are merged in as "
+                         "class 2 (two-model pre-annotation). Omit for the ball+club-only pass.")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--conf", type=float, default=0.15, help="detection floor (low, to see the misses)")
+    ap.add_argument("--hole-conf", type=float, default=0.15, help="hole-teacher detection floor")
     ap.add_argument("--coarse-sec", type=float, default=0.5, help="s between analysed frames")
     ap.add_argument("--total", type=int, default=500, help="frames to select for review")
     ap.add_argument("--per-video-cap", type=int, default=40)
@@ -101,10 +121,12 @@ def main():
     (out / "images").mkdir(parents=True, exist_ok=True)
     (out / "labels").mkdir(parents=True, exist_ok=True)
     model = YOLO(args.model)
+    hole_model = YOLO(args.hole_model) if args.hole_model else None
     videos = sorted(p for p in root.rglob("*.mp4") if p.stat().st_size >= args.min_bytes)
     if not videos:
         sys.exit(f"no .mp4 >= {args.min_bytes} bytes under {root}")
-    print(f"{len(videos)} videos; coarse-scanning at {args.coarse_sec}s spacing...")
+    print(f"{len(videos)} videos; coarse-scanning at {args.coarse_sec}s spacing"
+          + (" (+hole teacher)" if hole_model else "") + "...")
 
     # ---- coarse scan: one descriptor + score + dets per sampled frame (frames not held in RAM) ----
     cand = []   # dict(vid, video, fidx, desc, score, reason, dets, wh)
@@ -114,11 +136,23 @@ def main():
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         step = max(1, int(round(args.coarse_sec * fps)))
         cap.release()
-        for k, r in enumerate(model.predict(source=str(v), stream=True, imgsz=args.imgsz,
-                                             conf=args.conf, vid_stride=step,
-                                             device=args.device or None, verbose=False)):
+        dev = args.device or None
+        gen = model.predict(source=str(v), stream=True, imgsz=args.imgsz, conf=args.conf,
+                            vid_stride=step, device=dev, verbose=False)
+        # two-model pre-annotation: zip a second stream (same video+stride -> aligned frames) for
+        # the hole class; ball/club_head come from `model`, hole from `hole_model`
+        if hole_model is not None:
+            genh = hole_model.predict(source=str(v), stream=True, imgsz=args.imgsz, conf=args.hole_conf,
+                                      vid_stride=step, device=dev, verbose=False)
+            pairs = zip(gen, genh)
+        else:
+            pairs = ((r, None) for r in gen)
+        for k, (r, rh) in enumerate(pairs):
             img = r.orig_img
-            dets = [(b.xyxy[0].tolist(), float(b.conf), int(b.cls)) for b in r.boxes]
+            dets = [(b.xyxy[0].tolist(), float(b.conf), int(b.cls)) for b in r.boxes]  # ball/club
+            if rh is not None:
+                for b in rh.boxes:                       # hole teacher is 1-class -> map to HOLE(2)
+                    dets.append((b.xyxy[0].tolist(), float(b.conf), HOLE))
             g = green_frac(img)
             s, why = uncertainty(dets, g)
             cand.append({"vid": vid, "video": str(v), "fidx": k * step, "desc": descriptor(img),
@@ -177,7 +211,7 @@ def main():
                             "original_width": W, "original_height": H, "image_rotation": 0,
                             "value": {"x": 100 * x1 / W, "y": 100 * y1 / H,
                                       "width": 100 * (x2 - x1) / W, "height": 100 * (y2 - y1) / H,
-                                      "rotation": 0, "rectanglelabels": ["ball" if cls == BALL else "club_head"]}})
+                                      "rotation": 0, "rectanglelabels": [LABELS[cls]]}})
         (out / "labels" / f"{name}.txt").write_text("\n".join(lines) + ("\n" if lines else ""))
         tasks.append({"data": {"image": f"{args.ls_prefix}{name}.jpg"},
                       "predictions": [{"model_version": "auto", "result": results}]})
@@ -191,9 +225,10 @@ def main():
 
     from collections import Counter
     reasons = Counter(r[4] for r in rows)
+    labels_hint = "3 labels: ball, club_head, hole" if hole_model else "2 labels: ball, club_head"
     print(f"\nSelected {len(rows)} frames for review across {len(per_vid)} videos.")
     print("reasons:", dict(reasons))
-    print(f"-> import {out/'ls_tasks.json'} into Label Studio (2 labels: ball, club_head), correct, "
+    print(f"-> import {out/'ls_tasks.json'} into Label Studio ({labels_hint}), correct, "
           f"export YOLO. Or hand-fix the YOLO {out/'labels'}/ directly.")
 
 

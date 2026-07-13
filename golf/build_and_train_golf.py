@@ -80,6 +80,8 @@ def main():
     ap.add_argument("--mined", help="auto-mined dir")
     ap.add_argument("--out", default="datasets/golf_ego_v3")
     ap.add_argument("--name", default="golf_ego_v3")
+    ap.add_argument("--names", default="ball,club_head",
+                    help="comma-separated class names in index order; use 'ball,club_head,hole' for 3-class")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=6)
@@ -127,12 +129,13 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "train.txt").write_text("\n".join(train) + "\n")
     (out / "val.txt").write_text("\n".join(val_imgs) + "\n")
+    names = [s.strip() for s in args.names.split(",") if s.strip()]
     yaml = out / f"{args.name}.yaml"
     yaml.write_text(
         f"# {args.name}: fine-tune from golf_ego_v2 with new people/scenes\n"
         f"train: {(out / 'train.txt').resolve()}\n"
         f"val: {(out / 'val.txt').resolve()}\n"
-        f"names:\n  0: ball\n  1: club_head\n")
+        "names:\n" + "".join(f"  {i}: {nm}\n" for i, nm in enumerate(names)))
 
     print(f"\ntrain {len(train)} imgs ({len(trusted)} trusted + {len(mined)} auto-mined) | "
           f"val {len(val_imgs)} imgs (FIXED, {len(val_vids)} videos)")
