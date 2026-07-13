@@ -1,4 +1,4 @@
-package com.example.facehand
+package com.example.golf
 
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -72,7 +72,7 @@ class HitCounter {
     private fun breakTrack() { launch?.broke = true }
 
     /**
-     * Feed one analyzed frame. [dets] in normalized [0,1] coords (as [FaceHandDetector] emits),
+     * Feed one analyzed frame. [dets] in normalized [0,1] coords (as [GolfDetector] emits),
      * [t] a monotonic timestamp in seconds, [motion] already fed this frame's bitmap.
      * Returns true exactly when a hit is counted (1–2 s after the actual contact).
      */
@@ -270,7 +270,7 @@ class HitCounter {
     }
 
     companion object {
-        private const val W = FaceHandDetector.INPUT.toFloat()   // 640-square working space
+        private const val W = GolfDetector.INPUT.toFloat()   // 640-square working space
         // physical-unit tunables — keep in sync with golf/hit_detector.py v3 + port_sim.py
         private const val REST_SPEED = 7.5f      // D/s: TRUE speed below this = at rest
         private const val REST_RUN_S = 0.17      // s of rest to arm an address

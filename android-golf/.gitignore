@@ -1,0 +1,13 @@
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# The bundled model IS committed (override the repo-root "*.tflite" ignore) so the app builds standalone.
+!app/src/main/assets/golf.tflite

@@ -36,8 +36,7 @@ enum class DetectorModel(val asset: String, val displayName: String, val labels:
     FACE_HAND_QR_BAR(
         "face_hand_qr_bar.tflite", "Face + Hand + QR + Barcode",
         arrayOf("face", "hand", "qr", "barcode"),
-    ),
-    GOLF("golf.tflite", "Golf (ball + club head)", arrayOf("ball", "club_head"));
+    );
 
     /** True if this model emits qr/barcode boxes worth handing to the barcode decoder. */
     val decodesCodes get() = labels.contains("qr") || labels.contains("barcode")

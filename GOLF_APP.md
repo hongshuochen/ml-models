@@ -108,11 +108,12 @@ Design decisions worth knowing (each is load-bearing, measured on real footage):
 
 ## 4. Android app
 
-Flow (`android/app/src/main/java/com/example/facehand/`):
+Standalone app `android-golf/` (package `com.example.golf`, separate from the face/hand `android/`;
+they build and install independently). Flow (`android-golf/app/src/main/java/com/example/golf/`):
 
 ```
 CameraX (back camera, KEEP_ONLY_LATEST)
-  → 640×640 bitmap → FaceHandDetector (golf.tflite, f16, (1,300,6) NMS-free)  ~58 ms CPU
+  → 640×640 bitmap → GolfDetector (golf.tflite, f16, (1,300,6) NMS-free)  ~58 ms CPU
   → GlobalMotion.prepare(bitmap)      local camera translation                 ~2 ms
   → HitCounter.update(dets, t, motion)                                         <1 ms
   → big live count + state HUD (SEARCH / TRACK / ADDRESS / PEND) + Reset
@@ -131,9 +132,10 @@ CameraX (back camera, KEEP_ONLY_LATEST)
 - **`GlobalMotion.kt`** — see §2. Sampled **at the anchor/ball**, not the frame center: head
   rotation while walking makes a center estimate under-measure local flow (this exact bug
   produced 4 false fires in simulation before the fix).
-- Model asset: `android/app/src/main/assets/golf.tflite` (18.9 MB f16, see GOLF_YOLO.md).
-- Build: `cd android && JAVA_HOME=/opt/android-studio/jbr ./gradlew assembleDebug`
-  (needs SDK platform-34). Status: **APK builds; not yet field-tested on device.**
+- Model asset: `android-golf/app/src/main/assets/golf.tflite` (18.9 MB f16, see GOLF_YOLO.md).
+- Build: `cd android-golf && JAVA_HOME=/opt/android-studio/jbr ./gradlew assembleDebug`
+  (needs SDK platform-34). APK **39.7 MB** (vs the face/hand app's 57.8 MB — no ML Kit / face
+  recognition). Status: **APK builds; not yet field-tested on device.**
 
 ---
 
@@ -221,7 +223,7 @@ it killed real swings).
 | `golf/annotate_status.py` | two-pass video annotator (status + count + trail) |
 | `golf/port_sim.py` | phone-port validation simulator |
 | `golf/hit_boxonly_ref.py` | no-camera-motion fallback design (reference) |
-| `android/.../HitCounter.kt` | online Kotlin port of v3 |
-| `android/.../GlobalMotion.kt` | local block-match camera motion (~2 ms) |
-| `android/.../GolfActivity.kt` | camera → detector → counter → UI |
+| `android-golf/.../HitCounter.kt` | online Kotlin port of v3 |
+| `android-golf/.../GlobalMotion.kt` | local block-match camera motion (~2 ms) |
+| `android-golf/.../GolfActivity.kt` | camera → detector → counter → UI |
 | `GOLF_YOLO.md` | detector model card (architecture / benchmark / latency) |

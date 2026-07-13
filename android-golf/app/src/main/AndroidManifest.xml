@@ -5,19 +5,17 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
 
-    <!-- Send framing shots to the Gemini API for captioning -->
-    <uses-permission android:name="android.permission.INTERNET" />
-
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.FaceHandDetector">
+        android:theme="@style/Theme.GolfHits">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".GolfActivity"
             android:exported="true"
+            android:label="@string/app_name"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
@@ -26,18 +24,5 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".GalleryActivity"
-            android:exported="false"
-            android:label="@string/open_gallery"
-            android:parentActivityName=".MainActivity"
-            android:screenOrientation="portrait" />
-
-        <activity
-            android:name=".FramingGalleryActivity"
-            android:exported="false"
-            android:label="@string/open_framing_gallery"
-            android:parentActivityName=".MainActivity"
-            android:screenOrientation="portrait" />
     </application>
 </manifest>

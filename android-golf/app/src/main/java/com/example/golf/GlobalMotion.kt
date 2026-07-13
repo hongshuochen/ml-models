@@ -1,4 +1,4 @@
-package com.example.facehand
+package com.example.golf
 
 import android.graphics.Bitmap
 import kotlin.math.abs
@@ -85,7 +85,7 @@ class GlobalMotion {
 
     companion object {
         private const val SIZE = 160               // luma grid (640 / 4)
-        private const val SCALE = FaceHandDetector.INPUT / SIZE
+        private const val SCALE = GolfDetector.INPUT / SIZE
         private const val PATCH = 48               // matching block (≈192 px of the 640 frame)
         private const val RANGE = 16               // search ±16 (=±64 px/frame @640)
         private val ZERO = floatArrayOf(0f, 0f)

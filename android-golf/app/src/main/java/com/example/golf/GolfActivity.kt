@@ -1,4 +1,4 @@
-package com.example.facehand
+package com.example.golf
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -23,7 +23,7 @@ import java.util.concurrent.Executors
 /**
  * Golf hit counter. Back camera → golf detector (ball + club_head) → [GlobalMotion] (local
  * camera-motion estimate) → [HitCounter] (the ego-compensated v3 algorithm: putts AND full
- * swings) → live count + a state HUD. Reuses the app's proven CameraX + [FaceHandDetector] +
+ * swings) → live count + a state HUD. Reuses the app's proven CameraX + [GolfDetector] +
  * [OverlayView] plumbing. Note: a hit is counted 1–2 s after contact (veto windows must elapse).
  */
 class GolfActivity : AppCompatActivity() {
@@ -32,7 +32,7 @@ class GolfActivity : AppCompatActivity() {
     private lateinit var overlay: OverlayView
     private lateinit var countText: TextView
     private lateinit var hudText: TextView
-    private lateinit var detector: FaceHandDetector
+    private lateinit var detector: GolfDetector
     private val hits = HitCounter()
     private val motion = GlobalMotion()
     private val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -52,7 +52,7 @@ class GolfActivity : AppCompatActivity() {
         overlay = findViewById(R.id.overlay)
         countText = findViewById(R.id.countText)
         hudText = findViewById(R.id.hudText)
-        detector = FaceHandDetector(this, DetectorModel.GOLF)
+        detector = GolfDetector(this)
         findViewById<Button>(R.id.resetButton).setOnClickListener { hits.reset(); motion.reset(); countText.text = "0" }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -87,7 +87,7 @@ class GolfActivity : AppCompatActivity() {
     private fun analyze(image: ImageProxy) {
         try {
             val upright = image.toUprightBitmap()
-            val scaled = Bitmap.createScaledBitmap(upright, FaceHandDetector.INPUT, FaceHandDetector.INPUT, true)
+            val scaled = Bitmap.createScaledBitmap(upright, GolfDetector.INPUT, GolfDetector.INPUT, true)
             val t0 = System.nanoTime()
             val dets = detector.detect(scaled)
             motion.prepare(scaled)                       // local camera-motion estimate (~2 ms)
