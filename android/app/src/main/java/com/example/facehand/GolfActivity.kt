@@ -21,10 +21,10 @@ import androidx.core.content.ContextCompat
 import java.util.concurrent.Executors
 
 /**
- * Golf putt counter. Back camera → golf detector (ball + club_head) → [PuttCounter] (an ego-invariant
- * ball↔club-head distance state machine) → live count + a debug HUD (live distance/state) so the
- * thresholds can be calibrated in the field against real putts. Reuses the app's proven
- * CameraX + [FaceHandDetector] + [OverlayView] plumbing.
+ * Golf hit counter. Back camera → golf detector (ball + club_head) → [GlobalMotion] (local
+ * camera-motion estimate) → [HitCounter] (the ego-compensated v3 algorithm: putts AND full
+ * swings) → live count + a state HUD. Reuses the app's proven CameraX + [FaceHandDetector] +
+ * [OverlayView] plumbing. Note: a hit is counted 1–2 s after contact (veto windows must elapse).
  */
 class GolfActivity : AppCompatActivity() {
 
@@ -33,7 +33,8 @@ class GolfActivity : AppCompatActivity() {
     private lateinit var countText: TextView
     private lateinit var hudText: TextView
     private lateinit var detector: FaceHandDetector
-    private val putts = PuttCounter()
+    private val hits = HitCounter()
+    private val motion = GlobalMotion()
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private val lensFacing = CameraSelector.LENS_FACING_BACK   // golf = rear camera on the ball
@@ -52,7 +53,7 @@ class GolfActivity : AppCompatActivity() {
         countText = findViewById(R.id.countText)
         hudText = findViewById(R.id.hudText)
         detector = FaceHandDetector(this, DetectorModel.GOLF)
-        findViewById<Button>(R.id.resetButton).setOnClickListener { putts.reset(); countText.text = "0" }
+        findViewById<Button>(R.id.resetButton).setOnClickListener { hits.reset(); motion.reset(); countText.text = "0" }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
             startCamera()
@@ -82,21 +83,22 @@ class GolfActivity : AppCompatActivity() {
         }
     }
 
-    /** Analysis thread: detect → feed the putt state machine → update overlay + HUD. */
+    /** Analysis thread: detect → camera motion → hit state machine → overlay + HUD. */
     private fun analyze(image: ImageProxy) {
         try {
             val upright = image.toUprightBitmap()
             val scaled = Bitmap.createScaledBitmap(upright, FaceHandDetector.INPUT, FaceHandDetector.INPUT, true)
             val t0 = System.nanoTime()
             val dets = detector.detect(scaled)
-            val counted = putts.update(dets)
+            motion.prepare(scaled)                       // local camera-motion estimate (~2 ms)
+            val counted = hits.update(dets, System.nanoTime() / 1e9, motion)
             val ms = (System.nanoTime() - t0) / 1_000_000f
             val w = upright.width; val h = upright.height
             overlay.post {
                 overlay.setResults(dets, w, h, false, ms)
-                countText.text = putts.count.toString()
+                countText.text = hits.count.toString()
                 if (counted) flashPutt()
-                hudText.text = "d=%.2f   %s   •   %d ms".format(putts.lastDistance, putts.state, ms.toInt())
+                hudText.text = "%s   •   %d ms".format(hits.state, ms.toInt())
             }
             if (scaled != upright) scaled.recycle()
             upright.recycle()
