@@ -30,9 +30,10 @@ class GolfDetector(context: Context) {
 
     companion object {
         const val INPUT = 640            // square model input
-        const val NUM_DET = 300          // fixed number of output rows
-        const val STRIDE = 6             // values per row: x1,y1,x2,y2,conf,cls
-        const val SCORE_THRESHOLD = 0.5f
+        const val CHANNELS = 6           // per anchor: cx, cy, w, h, cls0, cls1 (all normalized [0,1])
+        const val ANCHORS = 8400         // 80²+40²+20² anchor points at 640
+        const val SCORE_THRESHOLD = 0.5f // keep an anchor above this class prob
+        const val NMS_IOU = 0.5f
         private const val ASSET = "golf.tflite"
         private const val TAG = "GolfDetector"
         private val LABELS = arrayOf("ball", "club_head")
@@ -48,7 +49,7 @@ class GolfDetector(context: Context) {
     // Reusable buffers (avoid per-frame allocations).
     private val inputBuffer: ByteBuffer =
         ByteBuffer.allocateDirect(INPUT * INPUT * 3 * 4).order(ByteOrder.nativeOrder())
-    private val output = Array(1) { Array(NUM_DET) { FloatArray(STRIDE) } }
+    private val output = Array(1) { Array(CHANNELS) { FloatArray(ANCHORS) } }   // [1, 6, 8400]
     private val pixels = IntArray(INPUT * INPUT)
 
     init {
@@ -120,22 +121,50 @@ class GolfDetector(context: Context) {
         // --- inference ---
         interpreter.run(inputBuffer, output)
 
-        // --- decode [1,300,6] (rows sorted by conf desc) ---
-        val results = ArrayList<Detection>()
-        val rows = output[0]
-        for (i in 0 until NUM_DET) {
-            val r = rows[i]
-            val score = r[4]
-            if (score < SCORE_THRESHOLD) break
-            val x1 = r[0].coerceIn(0f, 1f)
-            val y1 = r[1].coerceIn(0f, 1f)
-            val x2 = r[2].coerceIn(0f, 1f)
-            val y2 = r[3].coerceIn(0f, 1f)
-            if (x2 <= x1 || y2 <= y1) continue
-            val cls = r[5].toInt().coerceIn(0, LABELS.size - 1)
-            results.add(Detection(LABELS[cls], score, x1, y1, x2, y2))
+        // --- decode raw [1,6,8400]: per anchor [cx,cy,w,h,cls0,cls1] normalized, then NMS ---
+        // (this GPU-friendly raw head replaces the end-to-end NMS-free output, whose INT64/TopK
+        //  ops the GPU delegate can't run; the top-k selection is done here instead.)
+        val o = output[0]
+        val cx = o[0]; val cy = o[1]; val w = o[2]; val h = o[3]; val s0 = o[4]; val s1 = o[5]
+        val cand = ArrayList<Detection>()
+        for (i in 0 until ANCHORS) {
+            val a = s0[i]; val b = s1[i]
+            val score = if (a >= b) a else b
+            if (score < SCORE_THRESHOLD) continue
+            val cls = if (b > a) 1 else 0
+            val hw = w[i] * 0.5f; val hh = h[i] * 0.5f
+            val x1 = (cx[i] - hw).coerceIn(0f, 1f)
+            val y1 = (cy[i] - hh).coerceIn(0f, 1f)
+            val x2 = (cx[i] + hw).coerceIn(0f, 1f)
+            val y2 = (cy[i] + hh).coerceIn(0f, 1f)
+            if (x2 > x1 && y2 > y1) cand.add(Detection(LABELS[cls], score, x1, y1, x2, y2))
         }
-        return results
+        return nms(cand)
+    }
+
+    /** Greedy per-class NMS (few candidates survive the 0.5 threshold, so this is cheap). */
+    private fun nms(cand: ArrayList<Detection>): List<Detection> {
+        if (cand.size <= 1) return cand
+        cand.sortByDescending { it.score }
+        val kept = ArrayList<Detection>(cand.size)
+        val dead = BooleanArray(cand.size)
+        for (i in cand.indices) {
+            if (dead[i]) continue
+            val a = cand[i]; kept.add(a)
+            for (j in i + 1 until cand.size) {
+                if (dead[j] || cand[j].label != a.label) continue
+                if (iou(a, cand[j]) > NMS_IOU) dead[j] = true
+            }
+        }
+        return kept
+    }
+
+    private fun iou(a: Detection, b: Detection): Float {
+        val x1 = maxOf(a.x1, b.x1); val y1 = maxOf(a.y1, b.y1)
+        val x2 = minOf(a.x2, b.x2); val y2 = minOf(a.y2, b.y2)
+        val inter = maxOf(0f, x2 - x1) * maxOf(0f, y2 - y1)
+        val ua = (a.x2 - a.x1) * (a.y2 - a.y1) + (b.x2 - b.x1) * (b.y2 - b.y1) - inter
+        return if (ua <= 0f) 0f else inter / ua
     }
 
     fun close() {
