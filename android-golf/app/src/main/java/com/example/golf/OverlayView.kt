@@ -80,7 +80,6 @@ class OverlayView @JvmOverloads constructor(
             canvas.drawRect(left, chipTop, left + tw + 16f, chipTop + 40f, labelBg)
             canvas.drawText(text, left + 8f, chipTop + 30f, labelText)
         }
-
-        canvas.drawText("${detections.size} objs  •  ${latencyMs.toInt()} ms", 16f, height - 24f, hudText)
+        // (the latency / state read-out lives in the activity's HUD TextView — one ms is enough)
     }
 }

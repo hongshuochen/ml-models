@@ -20,7 +20,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="64dp"
+        android:layout_marginTop="36dp"
         android:text="0"
         android:textColor="#22d3ee"
         android:textSize="112sp"
@@ -34,7 +34,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="188dp"
+        android:layout_marginTop="160dp"
         android:text="HITS"
         android:textColor="#B0FFFFFF"
         android:textSize="18sp"
@@ -66,30 +66,5 @@
         android:text="Reset"
         android:textColor="#0b0f17"
         android:backgroundTint="#22d3ee" />
-
-    <!-- Benchmark picker: model (precision × head) and backend -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:orientation="horizontal"
-        android:background="#B0000000"
-        android:padding="2dp">
-
-        <Spinner
-            android:id="@+id/modelSpinner"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:popupBackground="#1b2430" />
-
-        <Spinner
-            android:id="@+id/backendSpinner"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:popupBackground="#1b2430" />
-
-    </LinearLayout>
 
 </FrameLayout>

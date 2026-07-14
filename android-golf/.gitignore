@@ -10,9 +10,4 @@ build/
 local.properties
 
 # The bundled model IS committed (override the repo-root "*.tflite" ignore) so the app builds standalone.
-!app/src/main/assets/golf_e2e_fp32.tflite
-!app/src/main/assets/golf_e2e_fp16.tflite
-!app/src/main/assets/golf_e2e_int8.tflite
-!app/src/main/assets/golf_raw_fp32.tflite
-!app/src/main/assets/golf_raw_fp16.tflite
-!app/src/main/assets/golf_raw_int8.tflite
+!app/src/main/assets/golf.tflite
