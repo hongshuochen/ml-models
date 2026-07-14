@@ -32,7 +32,8 @@ class GolfActivity : AppCompatActivity() {
     private lateinit var overlay: OverlayView
     private lateinit var countText: TextView
     private lateinit var hudText: TextView
-    private lateinit var detector: GolfDetector
+    @Volatile private var detector: GolfDetector? = null   // lazy-built on the analysis thread (backend
+                                                           // benchmark is heavy — keep it off the UI thread)
     private val hits = HitCounter()
     private val motion = GlobalMotion()
     private var lastHitNanos = -10_000_000_000L   // for the HIT/FOLLOW status window
@@ -53,7 +54,6 @@ class GolfActivity : AppCompatActivity() {
         overlay = findViewById(R.id.overlay)
         countText = findViewById(R.id.countText)
         hudText = findViewById(R.id.hudText)
-        detector = GolfDetector(this)
         findViewById<Button>(R.id.resetButton).setOnClickListener { hits.reset(); motion.reset(); countText.text = "0" }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -89,8 +89,11 @@ class GolfActivity : AppCompatActivity() {
         try {
             val upright = image.toUprightBitmap()
             val scaled = Bitmap.createScaledBitmap(upright, GolfDetector.INPUT, GolfDetector.INPUT, true)
+            // lazy-build on THIS (analysis) thread so onCreate/the UI never blocks on the backend
+            // benchmark; the first frame after launch just shows "…" while it builds
+            val det = detector ?: GolfDetector(this).also { detector = it }
             val t0 = System.nanoTime()
-            val dets = detector.detect(scaled)
+            val dets = det.detect(scaled)
             motion.prepare(scaled)                       // local camera-motion estimate (~2 ms)
             val counted = hits.update(dets, System.nanoTime() / 1e9, motion)
             val ms = (System.nanoTime() - t0) / 1_000_000f
@@ -108,7 +111,7 @@ class GolfActivity : AppCompatActivity() {
                 overlay.setResults(dets, w, h, false, ms)
                 countText.text = hits.count.toString()
                 if (counted) flashPutt()
-                hudText.text = "%s   •   %s %d ms".format(status, detector.backend, ms.toInt())
+                hudText.text = "%s   •   %s %d ms".format(status, det.backend, ms.toInt())
             }
             if (scaled != upright) scaled.recycle()
             upright.recycle()
@@ -139,6 +142,7 @@ class GolfActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         analysisExecutor.shutdown()
+        detector?.close()
     }
 
     companion object { private const val TAG = "GolfActivity" }

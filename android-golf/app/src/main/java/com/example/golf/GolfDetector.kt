@@ -56,10 +56,11 @@ class GolfDetector(context: Context) {
         Log.i(TAG, "golf detector backend = $backendName")
     }
 
-    /** Build every backend that loads (GPU / NNAPI / CPU) and time a few inferences on each, then
-     *  keep the FASTEST and close the rest. Auto-adapts to the device: a flagship picks GPU/NNAPI,
-     *  a weak phone whose NNAPI is slower than its CPU (measured 595 vs 432 ms) correctly picks CPU.
-     *  We don't gate GPU on CompatibilityList (often a false negative) — we just try it. */
+    /** Pick the faster of GPU vs CPU by timing a few inferences on each, then close the loser.
+     *  (NNAPI is dropped: it is slow to compile at startup and, where tested, slower than CPU.)
+     *  This runs on a BACKGROUND thread — see GolfActivity, which lazy-builds the detector on its
+     *  analysis executor so the UI opens instantly. We don't gate GPU on CompatibilityList (often
+     *  a false negative) — we just try it and fall back if it throws. */
     private fun buildInterpreter(context: Context): Interpreter {
         data class Cand(val name: String, val interp: Interpreter, val delegate: GpuDelegate?)
         val cands = ArrayList<Cand>()
@@ -67,12 +68,11 @@ class GolfDetector(context: Context) {
             val d = GpuDelegate()
             cands.add(Cand("GPU", Interpreter(loadModelFile(context), Interpreter.Options().addDelegate(d)), d))
         } catch (e: Throwable) { Log.w(TAG, "GPU delegate unavailable", e) }
-        try {
-            cands.add(Cand("NNAPI", Interpreter(loadModelFile(context),
-                Interpreter.Options().apply { setUseNNAPI(true); setNumThreads(4) }), null))
-        } catch (e: Throwable) { Log.w(TAG, "NNAPI unavailable", e) }
         cands.add(Cand("CPU", Interpreter(loadModelFile(context),
             Interpreter.Options().apply { setNumThreads(4) }), null))
+
+        // if GPU didn't build there's nothing to compare — just use CPU (skip the benchmark)
+        if (cands.size == 1) { backendName = "CPU"; return cands[0].interp }
 
         var best: Cand? = null
         var bestMs = Double.MAX_VALUE
@@ -87,7 +87,7 @@ class GolfDetector(context: Context) {
             if (ms < bestMs) { bestMs = ms; best = c }
         }
         val winner = best ?: cands.last()
-        for (c in cands) if (c !== winner) { c.interp.close(); c.delegate?.close() }  // free the losers
+        for (c in cands) if (c !== winner) { c.interp.close(); c.delegate?.close() }  // free the loser
         backendName = winner.name
         gpuDelegate = winner.delegate
         return winner.interp
