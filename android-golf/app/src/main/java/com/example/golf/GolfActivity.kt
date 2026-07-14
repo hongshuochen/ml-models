@@ -35,6 +35,7 @@ class GolfActivity : AppCompatActivity() {
     private lateinit var detector: GolfDetector
     private val hits = HitCounter()
     private val motion = GlobalMotion()
+    private var lastHitNanos = -10_000_000_000L   // for the HIT/FOLLOW status window
     private val analysisExecutor = Executors.newSingleThreadExecutor()
     private var cameraProvider: ProcessCameraProvider? = null
     private val lensFacing = CameraSelector.LENS_FACING_BACK   // golf = rear camera on the ball
@@ -94,11 +95,20 @@ class GolfActivity : AppCompatActivity() {
             val counted = hits.update(dets, System.nanoTime() / 1e9, motion)
             val ms = (System.nanoTime() - t0) / 1_000_000f
             val w = upright.width; val h = upright.height
+            if (counted) lastHitNanos = System.nanoTime()
+            // status in the offline video's clearer vocabulary (IDLE / PREPARE / HIT / FOLLOW)
+            val sinceHit = (System.nanoTime() - lastHitNanos) / 1e9
+            val status = when {
+                sinceHit < 0.4 -> "HIT"
+                sinceHit < 1.2 -> "FOLLOW"
+                hits.state == "ADDRESS" || hits.state == "PEND" -> "PREPARE"
+                else -> "IDLE"
+            }
             overlay.post {
                 overlay.setResults(dets, w, h, false, ms)
                 countText.text = hits.count.toString()
                 if (counted) flashPutt()
-                hudText.text = "%s   •   %d ms".format(hits.state, ms.toInt())
+                hudText.text = "%s   •   %s %d ms".format(status, detector.backend, ms.toInt())
             }
             if (scaled != upright) scaled.recycle()
             upright.recycle()

@@ -45,6 +45,10 @@ dependencies {
 
     // TensorFlow Lite — on-device inference (base Interpreter API). 2.17.0 loads the model's ops.
     implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    // GPU delegate — offload the (float16) detector to the phone GPU. CPU-only was ~440 ms/frame
+    // on a rugged phone (~2 fps); the GPU delegate is the biggest single speedup. Falls back to CPU.
+    implementation("org.tensorflow:tensorflow-lite-gpu:2.17.0")
+    implementation("org.tensorflow:tensorflow-lite-gpu-api:2.17.0")
 
     // AndroidX UI essentials.
     implementation("androidx.core:core-ktx:1.13.1")

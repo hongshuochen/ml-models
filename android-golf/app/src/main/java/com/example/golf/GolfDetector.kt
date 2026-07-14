@@ -2,7 +2,10 @@ package com.example.golf
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
+import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -36,6 +39,10 @@ class GolfDetector(context: Context) {
     }
 
     private val interpreter: Interpreter
+    private var gpuDelegate: GpuDelegate? = null
+
+    /** "GPU" if the GPU delegate initialized, else "CPU" — shown in the HUD to confirm acceleration. */
+    val backend: String get() = if (gpuDelegate != null) "GPU" else "CPU"
 
     // Reusable buffers (avoid per-frame allocations).
     private val inputBuffer: ByteBuffer =
@@ -45,6 +52,17 @@ class GolfDetector(context: Context) {
 
     init {
         val options = Interpreter.Options().apply { setNumThreads(4) }
+        // Offload to the phone GPU when supported (float16 runs well on GPU); fall back to CPU.
+        try {
+            val compat = CompatibilityList()
+            if (compat.isDelegateSupportedOnThisDevice) {
+                gpuDelegate = GpuDelegate(compat.bestOptionsForThisDevice)
+                options.addDelegate(gpuDelegate)
+            }
+        } catch (e: Throwable) {
+            Log.w("GolfDetector", "GPU delegate unavailable, using CPU", e)
+            gpuDelegate = null
+        }
         interpreter = Interpreter(loadModelFile(context), options)
     }
 
@@ -93,5 +111,8 @@ class GolfDetector(context: Context) {
         return results
     }
 
-    fun close() = interpreter.close()
+    fun close() {
+        interpreter.close()
+        gpuDelegate?.close()
+    }
 }
