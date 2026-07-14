@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import org.tensorflow.lite.Interpreter
-import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -35,14 +34,16 @@ class GolfDetector(context: Context) {
         const val STRIDE = 6             // values per row: x1,y1,x2,y2,conf,cls
         const val SCORE_THRESHOLD = 0.5f
         private const val ASSET = "golf.tflite"
+        private const val TAG = "GolfDetector"
         private val LABELS = arrayOf("ball", "club_head")
     }
 
     private val interpreter: Interpreter
     private var gpuDelegate: GpuDelegate? = null
+    private var backendName = "CPU"
 
-    /** "GPU" if the GPU delegate initialized, else "CPU" — shown in the HUD to confirm acceleration. */
-    val backend: String get() = if (gpuDelegate != null) "GPU" else "CPU"
+    /** "GPU" / "NNAPI" / "CPU" — the accelerator that actually initialized (shown in the HUD). */
+    val backend: String get() = backendName
 
     // Reusable buffers (avoid per-frame allocations).
     private val inputBuffer: ByteBuffer =
@@ -51,19 +52,30 @@ class GolfDetector(context: Context) {
     private val pixels = IntArray(INPUT * INPUT)
 
     init {
-        val options = Interpreter.Options().apply { setNumThreads(4) }
-        // Offload to the phone GPU when supported (float16 runs well on GPU); fall back to CPU.
+        interpreter = buildInterpreter(context)
+        Log.i(TAG, "golf detector backend = $backendName")
+    }
+
+    /** Try GPU (best for float16) → NNAPI → CPU, taking the first that loads. We do NOT gate on
+     *  CompatibilityList.isDelegateSupportedOnThisDevice — it is often falsely negative; instead we
+     *  build the interpreter with the delegate and only fall back if that actually throws. */
+    private fun buildInterpreter(context: Context): Interpreter {
         try {
-            val compat = CompatibilityList()
-            if (compat.isDelegateSupportedOnThisDevice) {
-                gpuDelegate = GpuDelegate(compat.bestOptionsForThisDevice)
-                options.addDelegate(gpuDelegate)
-            }
+            val d = GpuDelegate()
+            val interp = Interpreter(loadModelFile(context), Interpreter.Options().addDelegate(d))
+            gpuDelegate = d; backendName = "GPU"; return interp
         } catch (e: Throwable) {
-            Log.w("GolfDetector", "GPU delegate unavailable, using CPU", e)
-            gpuDelegate = null
+            Log.w(TAG, "GPU delegate failed, trying NNAPI", e); gpuDelegate?.close(); gpuDelegate = null
         }
-        interpreter = Interpreter(loadModelFile(context), options)
+        try {
+            val interp = Interpreter(loadModelFile(context),
+                Interpreter.Options().apply { setUseNNAPI(true); setNumThreads(4) })
+            backendName = "NNAPI"; return interp
+        } catch (e: Throwable) {
+            Log.w(TAG, "NNAPI failed, using CPU", e)
+        }
+        backendName = "CPU"
+        return Interpreter(loadModelFile(context), Interpreter.Options().apply { setNumThreads(4) })
     }
 
     /** Memory-map the .tflite from assets (requires noCompress "tflite" in Gradle). */
