@@ -56,26 +56,41 @@ class GolfDetector(context: Context) {
         Log.i(TAG, "golf detector backend = $backendName")
     }
 
-    /** Try GPU (best for float16) → NNAPI → CPU, taking the first that loads. We do NOT gate on
-     *  CompatibilityList.isDelegateSupportedOnThisDevice — it is often falsely negative; instead we
-     *  build the interpreter with the delegate and only fall back if that actually throws. */
+    /** Build every backend that loads (GPU / NNAPI / CPU) and time a few inferences on each, then
+     *  keep the FASTEST and close the rest. Auto-adapts to the device: a flagship picks GPU/NNAPI,
+     *  a weak phone whose NNAPI is slower than its CPU (measured 595 vs 432 ms) correctly picks CPU.
+     *  We don't gate GPU on CompatibilityList (often a false negative) — we just try it. */
     private fun buildInterpreter(context: Context): Interpreter {
+        data class Cand(val name: String, val interp: Interpreter, val delegate: GpuDelegate?)
+        val cands = ArrayList<Cand>()
         try {
             val d = GpuDelegate()
-            val interp = Interpreter(loadModelFile(context), Interpreter.Options().addDelegate(d))
-            gpuDelegate = d; backendName = "GPU"; return interp
-        } catch (e: Throwable) {
-            Log.w(TAG, "GPU delegate failed, trying NNAPI", e); gpuDelegate?.close(); gpuDelegate = null
-        }
+            cands.add(Cand("GPU", Interpreter(loadModelFile(context), Interpreter.Options().addDelegate(d)), d))
+        } catch (e: Throwable) { Log.w(TAG, "GPU delegate unavailable", e) }
         try {
-            val interp = Interpreter(loadModelFile(context),
-                Interpreter.Options().apply { setUseNNAPI(true); setNumThreads(4) })
-            backendName = "NNAPI"; return interp
-        } catch (e: Throwable) {
-            Log.w(TAG, "NNAPI failed, using CPU", e)
+            cands.add(Cand("NNAPI", Interpreter(loadModelFile(context),
+                Interpreter.Options().apply { setUseNNAPI(true); setNumThreads(4) }), null))
+        } catch (e: Throwable) { Log.w(TAG, "NNAPI unavailable", e) }
+        cands.add(Cand("CPU", Interpreter(loadModelFile(context),
+            Interpreter.Options().apply { setNumThreads(4) }), null))
+
+        var best: Cand? = null
+        var bestMs = Double.MAX_VALUE
+        for (c in cands) {
+            val ms = try {
+                repeat(2) { c.interp.run(inputBuffer, output) }          // warmup
+                val t0 = System.nanoTime()
+                repeat(3) { c.interp.run(inputBuffer, output) }
+                (System.nanoTime() - t0) / 3e6
+            } catch (e: Throwable) { Log.w(TAG, "${c.name} inference failed", e); Double.MAX_VALUE }
+            Log.i(TAG, "backend ${c.name}: ${ms.toInt()} ms")
+            if (ms < bestMs) { bestMs = ms; best = c }
         }
-        backendName = "CPU"
-        return Interpreter(loadModelFile(context), Interpreter.Options().apply { setNumThreads(4) })
+        val winner = best ?: cands.last()
+        for (c in cands) if (c !== winner) { c.interp.close(); c.delegate?.close() }  // free the losers
+        backendName = winner.name
+        gpuDelegate = winner.delegate
+        return winner.interp
     }
 
     /** Memory-map the .tflite from assets (requires noCompress "tflite" in Gradle). */
