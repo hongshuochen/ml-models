@@ -229,7 +229,12 @@ def main():
 
     from collections import Counter
     reasons = Counter(r[4] for r in rows)
-    labels_hint = "3 labels: ball, club_head, hole" if hole_model else "2 labels: ball, club_head"
+    # the LS project must define every class that can appear in the pre-annotations: whatever the
+    # main model emits (3-class model -> incl hole), plus hole if a separate teacher supplies it
+    label_names = [model.names[i] for i in sorted(model.names)]
+    if hole_model and "hole" not in label_names:
+        label_names.append("hole")
+    labels_hint = f"{len(label_names)} labels: {', '.join(label_names)}"
     print(f"\nSelected {len(rows)} frames for review across {len(per_vid)} videos.")
     print("reasons:", dict(reasons))
     print(f"-> import {out/'ls_tasks.json'} into Label Studio ({labels_hint}), correct, "
