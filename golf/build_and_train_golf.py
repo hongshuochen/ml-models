@@ -21,14 +21,15 @@ Sources must each be a directory with images/ + labels/ siblings (YOLO txt: `cls
     --reviewed  human-corrected frames from Label Studio export (select_review_frames.py -> LS)
     --mined     auto-mined frames (mine_golf_videos.py output)
 
-Example (on the video machine):
+Example (on the video machine — 3-class incl hole):
     python build_and_train_golf.py \
-        --base-weights golf_ego_v2_best.pt \
+        --base-weights golf_ego_v3_hole_best.pt \
         --val      carried/golf_ego_v1_val \
-        --old      carried/golf_ego_v2_train \
+        --old      carried/golf_ego_v3_hole_train \
         --reviewed out_review_corrected \
         --mined    out_mined \
-        --name golf_ego_v3 --imgsz 1280 --epochs 40 --batch 6
+        --names ball,club_head,hole \
+        --name golf_ego_v4_hole --imgsz 1280 --epochs 40 --batch 6
 """
 import argparse
 import os
@@ -42,6 +43,21 @@ except ImportError:
     sys.exit("pip install ultralytics opencv-python")
 
 IMG_EXT = (".jpg", ".jpeg", ".png")
+
+
+def class_recall(res):
+    """Per-class recall keyed by class index. Ultralytics aligns box.r to box.ap_class_index
+    (only the classes that actually appear in the val LABELS), NOT to 0..nc-1 — so a fixed val
+    with no 'hole' labels simply yields no entry for class 2. Indexing res.box.r[2] blindly would
+    IndexError on that val; this maps r back onto real class indices so the report never crashes."""
+    idx = [int(c) for c in res.box.ap_class_index]
+    return {c: float(res.box.r[j]) for j, c in enumerate(idx)}
+
+
+def fmt_recall(rec, names):
+    """'ball R=0.91  club_head R=0.88  hole R=n/a' — n/a where the class is absent from the val."""
+    return "  ".join(f"{nm} R={rec[i]:.3f}" if i in rec else f"{nm} R=n/a"
+                     for i, nm in enumerate(names))
 
 
 def images_in(d):
@@ -73,15 +89,17 @@ def video_of(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base-weights", required=True, help="golf_ego_v2 best.pt (fine-tune start)")
+    ap.add_argument("--base-weights", required=True,
+                    help="fine-tune start, e.g. golf_ego_v3_hole best.pt (3-class incl hole)")
     ap.add_argument("--val", required=True, help="FIXED held-out val dir (images/ + labels/)")
     ap.add_argument("--old", help="existing hand-labeled ego train dir")
     ap.add_argument("--reviewed", help="human-corrected review dir")
     ap.add_argument("--mined", help="auto-mined dir")
-    ap.add_argument("--out", default="datasets/golf_ego_v3")
-    ap.add_argument("--name", default="golf_ego_v3")
-    ap.add_argument("--names", default="ball,club_head",
-                    help="comma-separated class names in index order; use 'ball,club_head,hole' for 3-class")
+    ap.add_argument("--out", default="datasets/golf_ego_v4_hole")
+    ap.add_argument("--name", default="golf_ego_v4_hole")
+    ap.add_argument("--names", default="ball,club_head,hole",
+                    help="comma-separated class names in index order (MUST match the base model & "
+                         "label class ids); pass 'ball,club_head' only for the legacy 2-class flow")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=6)
@@ -148,8 +166,8 @@ def main():
     base = YOLO(args.base_weights)
     print("\n== baseline (golf_ego_v2) on the fixed val ==")
     b = base.val(data=str(yaml), imgsz=args.imgsz, batch=args.batch, device=args.device, verbose=False)
-    print(f"  mAP50={b.box.map50:.3f} mAP50-95={b.box.map:.3f} "
-          f"ball R={b.box.r[0]:.3f} club R={b.box.r[1]:.3f}")
+    br = class_recall(b)
+    print(f"  mAP50={b.box.map50:.3f} mAP50-95={b.box.map:.3f}  " + fmt_recall(br, names))
 
     # ---- fine-tune from v2 weights ----
     model = YOLO(args.base_weights)
@@ -157,11 +175,17 @@ def main():
                 patience=args.patience, device=args.device, name=args.name, seed=args.seed,
                 mixup=0.1, copy_paste=0.1)
 
-    print("\n== golf_ego_v3 on the fixed val ==")
+    print(f"\n== {args.name} on the fixed val ==")
     r = model.val(data=str(yaml), imgsz=args.imgsz, batch=args.batch, device=args.device, verbose=False)
-    print(f"  mAP50={r.box.map50:.3f} mAP50-95={r.box.map:.3f} "
-          f"ball R={r.box.r[0]:.3f} club R={r.box.r[1]:.3f}")
-    print(f"  Δ vs v2: mAP50 {r.box.map50 - b.box.map50:+.3f}, ball recall {r.box.r[0] - b.box.r[0]:+.3f}")
+    rr = class_recall(r)
+    print(f"  mAP50={r.box.map50:.3f} mAP50-95={r.box.map:.3f}  " + fmt_recall(rr, names))
+    dmap = r.box.map50 - b.box.map50
+    dball = rr.get(0, float("nan")) - br.get(0, float("nan"))
+    print(f"  Δ vs baseline: mAP50 {dmap:+.3f}, ball recall {dball:+.3f}")
+    if len(names) > 2 and 2 not in rr:
+        print("  NOTE: the fixed val has NO 'hole' labels, so hole recall is not evaluated here.\n"
+              "        Add a few held-out putting clips (with hole labels) to the --val set to track\n"
+              "        cup recall over time — otherwise you are flying blind on the new class.")
     print(f"\nweights: runs/detect/{args.name}/weights/best.pt")
     print("if ball recall went UP and mAP held/rose -> export & deploy (see GOLF_YOLO.md).")
     print("if it DROPPED -> forgetting/drift: raise --auto-cap-frac trust (fewer auto), add more "

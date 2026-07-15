@@ -22,14 +22,16 @@ Output (set up Label Studio local storage on OUT/images, or just use the YOLO pr
   OUT/ls_tasks.json                          Label Studio import with pre-annotations
   OUT/manifest.csv                           per-frame score breakdown (why it was picked)
 
-For the 3-class extension (adding `hole`): pass `--hole-model` (the bootstrap hole teacher). Its
-hole boxes are merged in as class 2 while ball/club_head come from `--model` (golf_ego_v2) —
-"two-model pre-annotation". The selection then also favours hole sightings and puttable scenes
-where the (weak) teacher missed a hole, so the human labels the new class where it actually occurs.
+Hole (class 2): now that a real 3-class detector exists, just pass it as `--model
+golf_ego_v3_hole.pt` — its hole boxes come through directly (no teacher). `--hole-model` is the
+LEGACY bootstrap for when you only had a 2-class model: it merges a hole-only teacher's boxes in
+as class 2 while ball/club_head come from `--model` ("two-model pre-annotation"). Either way the
+selection favours hole sightings and puttable scenes a weak detector missed, so the human labels
+the new class where it actually occurs.
 
-Setup:  pip install ultralytics opencv-python ; copy best.pt (+ the hole teacher) over
-Run:    python select_review_frames.py /videos out_review --model golf_ego_v2.pt \
-            [--hole-model golf_hole_teacher.pt] --total 500
+Setup:  pip install ultralytics opencv-python ; copy best.pt (the 3-class golf_ego_v3_hole) over
+Run:    python select_review_frames.py /videos out_review --model golf_ego_v3_hole.pt --total 500
+        # legacy 2-class + teacher:  --model golf_ego_v2.pt --hole-model golf_hole_teacher.pt
 """
 import argparse
 import csv
@@ -149,7 +151,9 @@ def main():
             pairs = ((r, None) for r in gen)
         for k, (r, rh) in enumerate(pairs):
             img = r.orig_img
-            dets = [(b.xyxy[0].tolist(), float(b.conf), int(b.cls)) for b in r.boxes]  # ball/club
+            # every class the main model emits (int(b.cls)) — so a 3-class golf_ego_v3_hole model
+            # already yields hole(2) here directly, and no --hole-model teacher is needed
+            dets = [(b.xyxy[0].tolist(), float(b.conf), int(b.cls)) for b in r.boxes]
             if rh is not None:
                 for b in rh.boxes:                       # hole teacher is 1-class -> map to HOLE(2)
                     dets.append((b.xyxy[0].tolist(), float(b.conf), HOLE))

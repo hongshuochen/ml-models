@@ -34,11 +34,15 @@ The <video-id> encodes the video's relative path, so a later dataset build can s
 
 Setup on the mining machine (GPU used automatically if present; CPU works, just slower):
     pip install ultralytics opencv-python
-    # copy the model:  runs/detect/golf_ego_v2_1280/weights/best.pt
+    # copy the model:  runs/detect/golf_ego_v3_hole/weights/best.pt   (3-class, incl hole)
     python mine_golf_videos.py /path/to/videos out_mined --model best.pt
 
-Classes: 0=ball, 1=club_head. Interpolation is only trusted on SLOW track segments (a resting/
-rolling ball, a grounded club) — fast segments (swinging club) are never interpolated.
+Classes: CLASS-COUNT-AWARE — mines whatever the model's head has (2-class ball/club, OR the
+3-class ball/club_head/hole model). Tracks, gap-recovery and low-conf promotion all run per
+class, so on a putting frame the cup is recovered/promoted alongside the ball → the frame stays
+FULLY labeled (no partial-label trap where a written frame silently teaches hole=background).
+Interpolation is only trusted on SLOW track segments (a resting/rolling ball, a grounded club,
+a static cup) — fast segments (a swinging club) are never interpolated.
 """
 import argparse
 import csv
@@ -186,7 +190,8 @@ def mine_video(model, video: Path, vid: str, out: Path, args):
             labels[k][key] = (box, conf, tier)
 
     # ---- tracks (shared by T2 recovery and the temporal-support FP filter) ----
-    tracks = {cls: build_tracks(dets, cls) for cls in (0, 1)}
+    # class-count-aware: mine whatever the model detects (2-class ball/club, or 3-class incl hole)
+    tracks = {cls: build_tracks(dets, cls) for cls in range(len(model.names))}
 
     # temporal support: a detection is TRUSTED only if a same-class detection also appears in a
     # NEARBY position within +/- SUPPORT_WIN neighbour frames. A one-frame blip with no neighbour
@@ -207,8 +212,10 @@ def mine_video(model, video: Path, vid: str, out: Path, args):
         return hits >= args.min_support
 
     # ---- T2: track gaps + low-conf promotions, zoom-verified ----
+    # runs for every model class: for hole (3-class model) this recovers missed/weak cups on kept
+    # putting frames, which is exactly what keeps those frames FULLY labeled (no partial-label trap).
     t2 = 0
-    for cls in (0, 1):
+    for cls in range(len(model.names)):
         for tr in tracks[cls]:
             if len(tr.obs) < 3:
                 continue
