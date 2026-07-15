@@ -1,4 +1,7 @@
-"""Annotate a golf video with the HIT-detection STATUS timeline + live count.
+"""Annotate a golf video with the HIT-detection STATUS timeline + live count (+ hole/cup boxes).
+
+Defaults to the 3-class model (ball/club_head/hole); draws hole boxes in cyan. Pass a 2-class model
+and hole is simply absent (h=[] per frame).
 
 Uses the shared EGO-COMPENSATED hit detector (golf/hit_detector.py v3): pass 1 runs YOLO once and
 simultaneously estimates per-frame CAMERA affines from background optical flow (half-res LK,
@@ -30,8 +33,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cam_affine import pair_affine
 from hit_detector import detect_hits, track_balls
 
-BALL_COL, CLUB_COL = (0, 0, 255), (0, 200, 0)
-STATUS_COL = {"IDLE": (150, 150, 150), "PREPARE": (0, 200, 255), "HIT": (0, 0, 255), "FOLLOW": (0, 200, 0)}
+BALL_COL, CLUB_COL, HOLE_COL = (0, 0, 255), (0, 200, 0), (238, 210, 34)   # ball red, club green, hole cyan
+STATUS_COL = {"IDLE": (150, 150, 150), "PREPARE": (0, 200, 255), "HIT": (0, 0, 255),
+              "FOLLOW": (0, 200, 0), "MADE PUTT": (60, 220, 255)}   # made = gold
+BALL_MM = 42.7          # golf ball diameter (mm) — scales pixel motion -> real ball speed
+SPEED_DEADBAND = 0.45   # m/s — below this is ball-box jitter / camera-comp residual (stationary ball) -> show 0
 
 
 def nearest_dist(balls, clubs):
@@ -91,7 +97,7 @@ class CurvePlot:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
-    ap.add_argument("--model", default="runs/detect/golf_ego_v2_1280/weights/best.pt")
+    ap.add_argument("--model", default="runs/detect/golf_ego_v3_hole/weights/best.pt")
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--conf", type=float, default=0.2)
     ap.add_argument("--out", default=None)
@@ -100,6 +106,7 @@ def main():
     ap.add_argument("--dets-cache", default=None, help="cache_dets.py JSON: skip YOLO in pass 1")
     ap.add_argument("--cams-cache", default=None, help="cam_affine.py JSON: skip flow in pass 1")
     ap.add_argument("--no-trail", action="store_true", help="don't draw the post-hit ball trajectory tail")
+    ap.add_argument("--trail-secs", type=float, default=5.0, help="how long the post-hit ball trail lingers [5.0s]")
     args = ap.parse_args()
 
     src = Path(args.video)
@@ -125,7 +132,8 @@ def main():
         for r in m.predict(source=str(src), stream=True, imgsz=args.imgsz, conf=args.conf, device=0, verbose=False):
             b = [box.xyxy[0].tolist() for box in r.boxes if int(box.cls) == 0]
             c = [box.xyxy[0].tolist() + [float(box.conf)] for box in r.boxes if int(box.cls) == 1]
-            dets.append({"b": b, "c": c})
+            h = [box.xyxy[0].tolist() for box in r.boxes if int(box.cls) == 2]      # hole (cup); [] if a 2-class model
+            dets.append({"b": b, "c": c, "h": h})
             cg = cv2.cvtColor(cv2.resize(r.orig_img, None, fx=SCALE, fy=SCALE), cv2.COLOR_BGR2GRAY)
             if pg is not None:
                 cams.append(pair_affine(pg, cg, b + [cc[:4] for cc in c], SCALE))
@@ -139,29 +147,71 @@ def main():
     hit_flash = int(0.4 * fps)
     follow = int(0.8 * fps)
 
+    # --- ball speed (m/s), ego-compensated: remove camera motion between frames, px->m via ball size ---
+    all_diam = [bb[2] - bb[0] for f in dets for bb in f["b"] if bb[2] - bb[0] > 0]
+    med_diam = sorted(all_diam)[len(all_diam) // 2] if all_diam else 14.0
+
+    def diam_at(i):
+        return max((bb[2] - bb[0] for bb in dets[i]["b"]), default=med_diam) or med_diam
+
+    def speed_mps(i):
+        if i < 1:
+            return 0.0
+        p0, p1 = ball_track[i - 1], ball_track[i]
+        if p0 is None or p1 is None or not (cams and i - 1 < len(cams) and cams[i - 1] is not None):
+            return 0.0
+        M = cams[i - 1]                                    # map prev ball into this frame (subtract camera motion)
+        px = M[0] * p0[0] + M[1] * p0[1] + M[2]; py = M[3] * p0[0] + M[4] * p0[1] + M[5]
+        s = math.hypot(p1[0] - px, p1[1] - py) * fps * (BALL_MM / 1000.0) / diam_at(i)
+        return 0.0 if s > 8.0 else s      # >8 m/s in one frame = a mis-detection (a DIFFERENT ball), not a real putt
+
+    # --- MADE PUTT: ball track reaches inside a hole box within 2.5s after a hit ---
+    made = set()
+    for hf in hits:
+        for i in range(hf, min(hf + int(2.5 * fps), n)):
+            cur = ball_track[i]
+            if cur is None:
+                continue
+            for hb in dets[i].get("h", []):
+                ex, ey = (hb[2] - hb[0]) * 0.35, (hb[3] - hb[1]) * 0.35     # cup-lip / detection slack
+                if hb[0] - ex <= cur[0] <= hb[2] + ex and hb[1] - ey <= cur[1] <= hb[3] + ey:
+                    made.add(hf); break
+            if hf in made:
+                break
+
+    # per-hit "putt speed" = peak ego-comp ball speed in the first 0.6s after contact
+    hit_speed = {hf: max((speed_mps(i) for i in range(hf, min(hf + int(0.6 * fps), n))), default=0.0)
+                 for hf in hits}
+
     def status_at(i):
         for hf in hits:
-            if hf <= i <= hf + hit_flash:
-                return "HIT"
-            if hf + hit_flash < i <= hf + hit_flash + follow:
-                return "FOLLOW"
+            if hf <= i <= hf + hit_flash + follow:
+                if hf in made:
+                    return "MADE PUTT"
+                return "HIT" if i <= hf + hit_flash else "FOLLOW"
         return "PREPARE" if (i < len(armed) and armed[i]) else "IDLE"
 
     def count_at(i):
         return sum(1 for hf in hits if hf <= i)
 
+    def made_at(i):
+        return sum(1 for hf in hits if hf <= i and hf in made)
+
     # ---- pass 2: re-read frames (no YOLO) and render ----
     cap = cv2.VideoCapture(str(src))
     writer = None; plot = None
-    trail = []; trailing_until = -1
+    trail = []; trailing_until = -1; spd_smooth = 0.0
     for i in range(n):
         ok, frame = cap.read()
         if not ok:
             break
         H, W = frame.shape[:2]
-        balls = dets[i]["b"]; clubs = dets[i]["c"]
+        balls = dets[i]["b"]; clubs = dets[i]["c"]; holes = dets[i].get("h", [])
         d = nearest_dist(balls, clubs)
         status = status_at(i); is_hit = i in hit_set
+        for hb in holes:      # cup first so ball/club boxes draw over it
+            x1, y1, x2, y2 = map(int, hb[:4]); cv2.rectangle(frame, (x1, y1), (x2, y2), HOLE_COL, 3)
+            cv2.putText(frame, "hole", (x1, max(18, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, HOLE_COL, 2, cv2.LINE_AA)
         for b in balls:
             x1, y1, x2, y2 = map(int, b[:4]); cv2.rectangle(frame, (x1, y1), (x2, y2), BALL_COL, 3)
         for c in clubs:
@@ -174,10 +224,13 @@ def main():
         if args.no_trail:
             trailing_until = -1
         elif is_hit:
-            trail = []; trailing_until = i + int(2.5 * fps)
+            trail = []; trailing_until = i + int(args.trail_secs * fps)
         cur = ball_track[i]
         if i <= trailing_until and cur is not None:
-            trail.append((cur[0], cur[1]))
+            # reject an implausibly large single-frame jump (mis-detection onto a DIFFERENT ball, e.g. after
+            # the putt drops) — freeze the trail at the last good point instead of leaping across the green
+            if not trail or math.hypot(cur[0] - trail[-1][0], cur[1] - trail[-1][1]) < max(160.0, 10 * diam_at(i)):
+                trail.append((cur[0], cur[1]))
         if i <= trailing_until and len(trail) >= 2:
             npts = len(trail)
             for k in range(1, npts):
@@ -186,15 +239,27 @@ def main():
                 cv2.line(frame, p0, p1, (0, int(90 + 120*a), 255), max(2, int(2 + 6*a)), cv2.LINE_AA)
                 cv2.circle(frame, p1, max(2, int(3 + 4*a)), (0, 200, 255), -1, cv2.LINE_AA)
             cv2.circle(frame, tuple(map(int, trail[-1])), 12, (0, 220, 255), 3, cv2.LINE_AA)
-        # status banner + live count
+        # status banner + live count + made count
         col = STATUS_COL[status]
         cv2.rectangle(frame, (0, 0), (W, 130), (0, 0, 0), -1)
-        cv2.putText(frame, status, (30, 95), cv2.FONT_HERSHEY_SIMPLEX, 2.6, col, 6, cv2.LINE_AA)
-        cv2.putText(frame, f"HITS: {count_at(i)}", (W-430, 92), cv2.FONT_HERSHEY_SIMPLEX, 2.2, (255, 255, 255), 6, cv2.LINE_AA)
+        cv2.putText(frame, status, (30, 95), cv2.FONT_HERSHEY_SIMPLEX, 2.4, col, 6, cv2.LINE_AA)
+        cv2.putText(frame, f"HITS: {count_at(i)}", (W-470, 55), cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 255), 4, cv2.LINE_AA)
+        cv2.putText(frame, f"MADE: {made_at(i)}", (W-470, 112), cv2.FONT_HERSHEY_SIMPLEX, 1.6, STATUS_COL["MADE PUTT"], 4, cv2.LINE_AA)
+        # top-left speed panel (below the banner): live ego-compensated ball speed + the hit's peak putt speed
+        spd_smooth = 0.55 * spd_smooth + 0.45 * speed_mps(i)
+        # the ball only moves after contact: within the post-hit roll window (trail-secs) show the real
+        # speed (deadband trims the stopped tail); 0 at address/IDLE/PREPARE. Peak "putt speed" lingers
+        # for the whole roll window too (not just the ~1.2s flash).
+        roll_win = int(args.trail_secs * fps)
+        rh = next((hf for hf in reversed(hits) if hf <= i <= hf + roll_win), None)   # most recent hit still rolling
+        spd_show = spd_smooth if (rh is not None and spd_smooth >= SPEED_DEADBAND) else 0.0
+        cv2.putText(frame, f"ball  {spd_show:4.1f} m/s", (30, 200),      # yellow, always shown (top-left)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 255, 255), 4, cv2.LINE_AA)
+        if rh is not None and hit_speed[rh] > 0:
+            cv2.putText(frame, f"putt  {hit_speed[rh]:.1f} m/s peak", (30, 262),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.6, (0, 165, 255), 4, cv2.LINE_AA)   # orange, lingers the roll window
         ds = "--" if d is None else f"{d:.2f}"
         cv2.putText(frame, f"d={ds}", (30, H-30), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (255, 255, 255), 3, cv2.LINE_AA)
-        if is_hit:
-            cv2.rectangle(frame, (0, 0), (W, H), (0, 0, 255), 30)
         # growing distance strip below the video
         if plot is None:
             plot = CurvePlot(W, total, fps, args.d_low, args.d_high)
