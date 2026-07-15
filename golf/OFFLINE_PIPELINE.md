@@ -17,7 +17,9 @@ Weights (git-ignored — copy the actual files):
 - `runs/detect/golf_ego_v3_hole/weights/best.pt`  → the **3-class** model. Used for BOTH pre-labeling
   (`--model`) and as the fine-tune start (`--base-weights`). This one file is all you need.
 
-Carry-over anchors (keep metrics comparable + prevent forgetting):
+Carry-over anchors (keep metrics comparable + prevent forgetting). **Copy them preserving the
+`images/`+`labels/` layout** — e.g. into `~/golf_offline/data/` — and point `--val`/`--old` at the
+`images/<split>` dir (see the path rule in step 3):
 - `datasets/golf_ego_v1/{images,labels}/val`  → the **FIXED val** (`--val`, REQUIRED). It is ball+club
   only (no hole) — that's fine, see the note in step 3.
 - `datasets/golf_ego_v2/{images,labels}/train` → hand-labeled ego train (`--old`, recommended).
@@ -111,13 +113,19 @@ lower-trust than human ones — step 3 caps them to a fraction of the train set 
 ```
 uv run python build_and_train_golf.py \
     --base-weights best.pt \
-    --val      golf_ego_v1_val \
-    --old      golf_ego_v2_train \
+    --val      data/golf_ego_v1/images/val \
+    --old      data/golf_ego_v2/images/train \
     --reviewed out_review_corrected \
     --mined    out_mined \
     --names ball,club_head,hole \
     --name golf_ego_v4_hole --imgsz 1280 --epochs 40 --batch 6
 ```
+> **Path rule:** `--val` / `--old` must point at the `images/<split>` dir itself (e.g.
+> `.../golf_ego_v1/images/val`, NOT the parent `golf_ego_v1/`) — labels resolve via Ultralytics'
+> `images/`→`labels/` swap, so the path must contain `images/`. `--reviewed` / `--mined` point at
+> the output dir (they already have an `images/` subdir). Trained weights land in
+> `runs/detect/golf_ego_v4_hole/weights/best.pt`, relative to where you run the command.
+
 Fixed val + old-set mix-in + capped auto labels + early stopping guard against drift. The report
 prints per-class recall, e.g.:
 ```
