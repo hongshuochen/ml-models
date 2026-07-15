@@ -26,14 +26,39 @@ Carry-over anchors (keep metrics comparable + prevent forgetting):
 > ⚠️ Do **not** use `datasets/golf_hole` as `--old`: that set is the 1-class hole teacher where
 > **class 0 = hole**, so its ids collide with ball. Only `golf_ego_v2` / `golf_ego_v1` are safe.
 
+### Set up the environment with uv
+
+uv is a single binary and can fetch its own Python, so the machine needs nothing pre-installed
+except internet for the one-time downloads.
+
+```bash
+# 1) install uv (once)
+curl -LsSf https://astral.sh/uv/install.sh | sh   # Windows PS: irm https://astral.sh/uv/install.ps1 | iex
+#    re-open the shell (or `source ~/.bashrc`) so `uv` lands on PATH
+
+# 2) in the work dir, make a MINIMAL env just for these scripts (uv grabs Python 3.12 itself)
+uv venv --python 3.12
+uv pip install ultralytics opencv-python
+
+# 3) run everything below via `uv run python …` — it auto-uses ./.venv, no activation, no pyproject
+uv run python -c "import torch, cv2, ultralytics; print('GPU:', torch.cuda.is_available())"
+
+# 4) sanity-check the model + that your video folder is reachable (catches wrong path/weights early)
+uv run python -c "from ultralytics import YOLO; from pathlib import Path; \
+m=YOLO('golf_ego_v3_hole_best.pt'); print('classes:', m.names); \
+print('videos found:', len(list(Path('/path/to/new_videos').rglob('*.mp4'))))"
+# expect  classes: {0:'ball',1:'club_head',2:'hole'}  and a non-zero video count
 ```
-pip install ultralytics opencv-python
-```
+
+- If a GPU is present but that prints `GPU: False`, install the CUDA build of torch:
+  `uv pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu121`
+- Do **not** `uv sync` the whole repo — that drags in the heavy training/export deps you don't
+  need here; the minimal env above is enough for all four scripts.
 
 ## 1. Pick frames to hand-label  →  correct in Label Studio
 
 ```
-python select_review_frames.py /path/to/new_videos out_review \
+uv run python select_review_frames.py /path/to/new_videos out_review \
     --model golf_ego_v3_hole_best.pt --total 500
 ```
 Writes `out_review/images/*.jpg`, `out_review/labels/*.txt` (YOLO pre-labels), and
@@ -52,7 +77,7 @@ The 3-class model emits hole directly, so no separate `--hole-model` teacher is 
 ## 2. Auto-mine extra labels (optional but recommended)
 
 ```
-python mine_golf_videos.py /path/to/new_videos out_mined --model golf_ego_v3_hole_best.pt
+uv run python mine_golf_videos.py /path/to/new_videos out_mined --model golf_ego_v3_hole_best.pt
 ```
 Class-count-aware: mines ball, club **and** hole. It only keeps frames it can label *fully*
 (confident + temporally supported detections; track-gap recovery + low-conf promotion are
@@ -62,7 +87,7 @@ lower-trust than human ones — step 3 caps them to a fraction of the train set 
 ## 3. Fine-tune the 3-class model
 
 ```
-python build_and_train_golf.py \
+uv run python build_and_train_golf.py \
     --base-weights golf_ego_v3_hole_best.pt \
     --val      golf_ego_v1_val \
     --old      golf_ego_v2_train \
@@ -86,7 +111,7 @@ Output weights: `runs/detect/golf_ego_v4_hole/weights/best.pt`.
 ## 4. (optional) Eyeball the result
 
 ```
-python annotate_status.py /path/to/a_clip.mp4 out.mp4 --model runs/detect/golf_ego_v4_hole/weights/best.pt
+uv run python annotate_status.py /path/to/a_clip.mp4 out.mp4 --model runs/detect/golf_ego_v4_hole/weights/best.pt
 ```
 Overlays ball/club/hole boxes, trail, ball speed, and a MADE-PUTT / HITS tally — a fast way to
 confirm the new model behaves before copying `best.pt` back for export/deployment.
