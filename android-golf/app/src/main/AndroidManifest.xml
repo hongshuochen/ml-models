@@ -12,6 +12,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GolfHits">
 
+        <!-- QNN's HTP backend dlopens these vendor fastrpc libs to open a cDSP session; on Android 12+
+             (targetSdk 34) undeclared vendor public libraries are blocked from the app's linker namespace,
+             which fails as "Failed to create transport for device, error 4000". -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <uses-native-library android:name="libadsprpc.so" android:required="false" />
+
         <activity
             android:name=".GolfActivity"
             android:exported="true"

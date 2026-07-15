@@ -34,6 +34,7 @@ class GolfActivity : AppCompatActivity() {
     private lateinit var hudText: TextView
     @Volatile private var detector: GolfDetector? = null   // lazy-built on the analysis thread
     private var avgMs = 0f                          // rolling-average inference latency for a stable read
+    private var frameCount = 0                      // for throttled latency logging
     private val hits = HitCounter()
     private val motion = GlobalMotion()
     private var lastHitNanos = -10_000_000_000L   // for the HIT/FOLLOW status window
@@ -111,6 +112,9 @@ class GolfActivity : AppCompatActivity() {
                 else -> "IDLE"
             }
             val backend = det.backend
+            if (++frameCount % 20 == 0) Log.i("GolfLatency",
+                "%s  det.detect avgMs=%.1f  fps=%.1f  (last %.1f ms, %d dets)"
+                    .format(backend, avgMs, if (avgMs > 0) 1000f / avgMs else 0f, ms, dets.size))
             overlay.post {
                 overlay.setResults(dets, w, h, false, avgMs)
                 countText.text = hits.count.toString()

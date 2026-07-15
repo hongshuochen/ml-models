@@ -13,6 +13,8 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        // QNN (Hexagon NPU) libs are arm64-only; the phone target is arm64.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -33,6 +35,22 @@ android {
     androidResources {
         noCompress += "tflite"
     }
+    // Extract native libs to nativeLibraryDir (the QNN fastrpc file-service streams the HTP skel to the
+    // cDSP from disk); keep only the V79 (Snapdragon 8 Elite) skel/stub + drop the other backends.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            excludes += listOf(
+                "**/libQnnHtpV68Skel.so", "**/libQnnHtpV68Stub.so",
+                "**/libQnnHtpV69Skel.so", "**/libQnnHtpV69Stub.so",
+                "**/libQnnHtpV73Skel.so", "**/libQnnHtpV73Stub.so",
+                "**/libQnnHtpV75Skel.so", "**/libQnnHtpV75Stub.so",
+                "**/libQnnHtpV81Skel.so", "**/libQnnHtpV81Stub.so",
+                "**/libQnnDsp.so", "**/libQnnDspV66Skel.so", "**/libQnnDspV66Stub.so",
+                "**/libQnnGpu.so",
+            )
+        }
+    }
 }
 
 dependencies {
@@ -47,9 +65,13 @@ dependencies {
     // ML Kit Pose Detection — on-device 33-landmark body pose (the person being filmed).
     implementation("com.google.mlkit:pose-detection:18.0.0-beta5")
 
-    // TensorFlow Lite + GPU delegate — our club_head detector (public third-person model).
-    implementation("org.tensorflow:tensorflow-lite:2.17.0")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.17.0")
+    // LiteRT (TFLite successor) — our ball + club_head detector. Runs the raw-head model on the
+    // Qualcomm Hexagon NPU via QNN (~18 ms @640 on the S25). Keeps the org.tensorflow.lite Interpreter API.
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
+    implementation("com.google.ai.edge.litert:litert-gpu:1.4.2")
+    // Qualcomm QNN — HTP (Hexagon NPU) delegate + on-device runtime. See [[android-golf-npu-deploy]].
+    implementation("com.qualcomm.qti:qnn-litert-delegate:2.48.0")
+    implementation("com.qualcomm.qti:qnn-runtime:2.48.0")
 
     // AndroidX UI essentials.
     implementation("androidx.core:core-ktx:1.13.1")
