@@ -39,16 +39,6 @@
         android:textStyle="bold"
         android:visibility="gone" />
 
-    <Button
-        android:id="@+id/stopButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
-        android:text="Stop"
-        android:textColor="#0b0f17"
-        android:backgroundTint="#ef4444" />
-
     <!-- Address prompt (hidden until a swing setup is detected) -->
     <LinearLayout
         android:id="@+id/promptPanel"

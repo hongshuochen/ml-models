@@ -77,7 +77,6 @@ class RecActivity : AppCompatActivity() {
         recDot = findViewById(R.id.recDot)
         findViewById<Button>(R.id.recordButton).setOnClickListener { hidePrompt(); startRecording() }
         findViewById<Button>(R.id.skipButton).setOnClickListener { hidePrompt(); address.rearm() }
-        findViewById<Button>(R.id.stopButton).setOnClickListener { stopRecording() }
 
         val need = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
         if (need.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) startCamera()
@@ -207,6 +206,6 @@ class RecActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "RecActivity"
         private const val CLUB_NEAR = 0.25f      // club center within this (norm) of the hands = "at the hands"
-        private const val MAX_REC_MS = 12_000L   // auto-stop a swing clip after this
+        private const val MAX_REC_MS = 10_000L   // auto-stop a swing clip after this (no manual Stop button)
     }
 }
