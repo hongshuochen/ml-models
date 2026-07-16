@@ -144,7 +144,7 @@ class RecActivity : AppCompatActivity() {
                     AddressDetector.State.SEARCHING -> "Searching…"
                     AddressDetector.State.HUMAN -> "Human detected…"
                     AddressDetector.State.POSTURE -> "Posture detected…"
-                    AddressDetector.State.PROMPT -> "Ready to swing!"
+                    AddressDetector.State.PROMPT -> "Ready to hit!"
                 }
                 if (fired && !recordingActive) showPrompt()
                 busy = false

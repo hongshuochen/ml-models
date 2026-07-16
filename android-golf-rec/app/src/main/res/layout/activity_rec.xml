@@ -54,7 +54,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:text="Swing setup detected — record?"
+            android:text="Ready to hit — record?"
             android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:textStyle="bold"
