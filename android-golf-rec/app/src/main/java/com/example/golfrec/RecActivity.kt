@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.View
 import android.widget.Button
@@ -32,6 +33,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.pose.PoseLandmark
 import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
+import java.util.Locale
 import java.util.concurrent.Executors
 
 /**
@@ -49,6 +51,9 @@ class RecActivity : AppCompatActivity() {
 
     private var club: ClubDetector? = null                 // lazy-built on the analysis thread
     private val address = AddressDetector()
+    private var tts: TextToSpeech? = null
+    @Volatile private var ttsReady = false
+    private var lastSpokenAt = 0L                           // hard TTS cooldown clock
     private val poseDetector = PoseDetection.getClient(
         PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE).build())
 
@@ -74,6 +79,13 @@ class RecActivity : AppCompatActivity() {
         statusText = findViewById(R.id.statusText)
         promptPanel = findViewById(R.id.promptPanel)
         recDot = findViewById(R.id.recDot)
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val lang = tts?.setLanguage(Locale.US) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                ttsReady = lang != TextToSpeech.LANG_MISSING_DATA && lang != TextToSpeech.LANG_NOT_SUPPORTED
+                Log.i(TAG, "TTS init ok, en-US lang=$lang ready=$ttsReady")
+            } else Log.w(TAG, "TTS init failed status=$status")
+        }
         findViewById<Button>(R.id.recordButton).setOnClickListener { hidePrompt(); startRecording() }
         findViewById<Button>(R.id.skipButton).setOnClickListener { hidePrompt(); address.rearm() }
 
@@ -152,8 +164,19 @@ class RecActivity : AppCompatActivity() {
             .addOnFailureListener { busy = false }
     }
 
-    private fun showPrompt() { prompting = true; promptPanel.visibility = View.VISIBLE }
+    private fun showPrompt() {
+        prompting = true; promptPanel.visibility = View.VISIBLE
+        speak("Ready to hit, record?")
+    }
     private fun hidePrompt() { prompting = false; promptPanel.visibility = View.GONE }
+
+    /** Speak once. The fire event is already once-per-address; the cooldown is belt-and-braces. */
+    private fun speak(text: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!ttsReady || now - lastSpokenAt < TTS_COOLDOWN_MS) return
+        lastSpokenAt = now
+        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "golfrec")
+    }
 
     private fun startRecording() {
         val vc = videoCapture ?: return
@@ -199,10 +222,12 @@ class RecActivity : AppCompatActivity() {
         analysisExecutor.shutdown()
         poseDetector.close()
         club?.close()
+        tts?.shutdown()
     }
 
     companion object {
         private const val TAG = "RecActivity"
         private const val MAX_REC_MS = 10_000L   // auto-stop a swing clip after this (no manual Stop button)
+        private const val TTS_COOLDOWN_MS = 4_000L   // min gap between spoken cues
     }
 }
