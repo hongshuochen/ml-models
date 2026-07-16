@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_margin="16dp"
-        android:text="搜尋中…"
+        android:text="Searching…"
         android:textColor="#FFFFFF"
         android:textSize="18sp"
         android:textStyle="bold"
@@ -45,7 +45,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
         android:layout_margin="16dp"
-        android:text="停止"
+        android:text="Stop"
         android:textColor="#0b0f17"
         android:backgroundTint="#ef4444" />
 
@@ -64,7 +64,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
-            android:text="偵測到準備揮桿 — 要錄影嗎?"
+            android:text="Swing setup detected — record?"
             android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:textStyle="bold"
@@ -81,7 +81,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginEnd="12dp"
-                android:text="錄影"
+                android:text="Record"
                 android:textColor="#0b0f17"
                 android:backgroundTint="#22d3ee" />
 
@@ -89,7 +89,7 @@
                 android:id="@+id/skipButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="略過"
+                android:text="Skip"
                 android:textColor="#FFFFFF"
                 android:backgroundTint="#374151" />
         </LinearLayout>

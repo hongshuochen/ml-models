@@ -118,7 +118,8 @@ class RecActivity : AppCompatActivity() {
         val t = System.nanoTime() / 1e9
         val det = club ?: ClubDetector(this).also { club = it }
         val scaled = Bitmap.createScaledBitmap(upright, ClubDetector.INPUT, ClubDetector.INPUT, true)
-        val clubs = det.detect(scaled).filter { it.label == "club_head" }
+        val allDets = det.detect(scaled)            // draw ALL (ball + club_head); address logic uses clubs
+        val clubs = allDets.filter { it.label == "club_head" }
         if (scaled != upright) scaled.recycle()
         val w = upright.width; val h = upright.height
 
@@ -136,11 +137,17 @@ class RecActivity : AppCompatActivity() {
                     pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
                     pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
                     pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
-                overlay.setResults(clubs, w, h, false, 0f)
+                // draw the ML Kit body skeleton + all golf detections (ball + club_head)
+                val posePts = HashMap<Int, android.graphics.PointF>()
+                for (lm in pose.allPoseLandmarks) {
+                    if (lm.inFrameLikelihood > 0.5f)
+                        posePts[lm.landmarkType] = android.graphics.PointF(lm.position.x / w, lm.position.y / h)
+                }
+                overlay.setResults(allDets, posePts, w, h, false, 0f)
                 statusText.text = when (address.state) {
-                    AddressDetector.State.SEARCHING -> "搜尋中…"
-                    AddressDetector.State.POSTURE -> "偵測到姿勢…"
-                    AddressDetector.State.PROMPT -> "準備揮桿!"
+                    AddressDetector.State.SEARCHING -> "Searching…"
+                    AddressDetector.State.POSTURE -> "Posture detected…"
+                    AddressDetector.State.PROMPT -> "Ready to swing!"
                 }
                 if (fired && !recordingActive) showPrompt()
                 busy = false
