@@ -142,6 +142,7 @@ class RecActivity : AppCompatActivity() {
                 overlay.setResults(allDets, posePts, w, h, false, 0f)
                 statusText.text = when (address.state) {
                     AddressDetector.State.SEARCHING -> "Searching…"
+                    AddressDetector.State.HUMAN -> "Human detected…"
                     AddressDetector.State.POSTURE -> "Posture detected…"
                     AddressDetector.State.PROMPT -> "Ready to swing!"
                 }

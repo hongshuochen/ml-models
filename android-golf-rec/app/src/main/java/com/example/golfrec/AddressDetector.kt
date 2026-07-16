@@ -31,7 +31,7 @@ class AddressDetector(
     private val clubMemS: Double = 1.5,    // s: a club sighting near the hands stays valid this long
     private val reArmLostS: Double = 0.6,  // s the posture must be absent to re-arm after a fire
 ) {
-    enum class State { SEARCHING, POSTURE, PROMPT }
+    enum class State { SEARCHING, HUMAN, POSTURE, PROMPT }
 
     var state = State.SEARCHING; private set
     var lastClubSeen = -1e9; private set
@@ -81,10 +81,15 @@ class AddressDetector(
                 }
                 state = if (fired) State.PROMPT else State.POSTURE
             }
-            else -> {                                   // posture lost -> re-arm after a beat
+            else -> {                                   // no posture -> HUMAN if a person is visible, else SEARCHING
                 postureSince = -1.0
                 if (lostSince < 0) lostSince = t
-                if (t - lostSince >= reArmLostS) { fired = false; state = State.SEARCHING }
+                val reArmed = t - lostSince >= reArmLostS
+                if (reArmed) fired = false               // re-arm for the next swing episode
+                val human = shoulder != null             // a person's torso is in frame
+                // brief debounce: hold POSTURE/PROMPT right after posture is lost, else reflect presence
+                state = if (!reArmed && (state == State.POSTURE || state == State.PROMPT)) state
+                        else if (human) State.HUMAN else State.SEARCHING
             }
         }
         return confirmed
