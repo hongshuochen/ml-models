@@ -14,8 +14,9 @@ data class Pt(val x: Float, val y: Float)
  *   - HANDS LOW      : the wrists are around/below hip height (reaching down to the ball),
  *   - ARMS DOWN      : the wrists hang well below the shoulders,
  *   - STILL          : the posture is held still for [holdS] (a golfer settles before swinging),
- *   - CLUB PRESENT   : a club_head was seen near the hands recently (confirms it is golf, not e.g.
- *                      tying a shoe) — a booster, required for the fire.
+ *   - CLUB/BALL LOW  : a club_head OR ball was seen recently sitting BELOW the hands (on the ground
+ *                      at the golfer's feet, where they rest at address — NOT up near the grip) —
+ *                      confirms it is golf, not e.g. tying a shoe. Required for the fire.
  *
  * Fires ONCE per address episode (re-arms only after the posture is lost), so the recorder is
  * prompted once. All thresholds are in body-relative units (fractions of torso/shoulder length),
@@ -40,8 +41,8 @@ class AddressDetector(
     private var fired = false
     private val wristHist = ArrayDeque<Triple<Double, Float, Float>>()  // (t, midWristX, midWristY)
 
-    /** Call when a club_head box is seen near the hands (RecActivity checks proximity). */
-    fun noteClubNearHands(t: Double) { lastClubSeen = t }
+    /** Call when a club_head OR ball is seen LOW — below the hands, at the address ball position. */
+    fun noteClubOrBallLow(t: Double) { lastClubSeen = t }
 
     private fun mid(a: Pt?, b: Pt?): Pt? =
         if (a != null && b != null) Pt((a.x + b.x) / 2, (a.y + b.y) / 2) else (a ?: b)

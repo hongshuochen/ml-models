@@ -33,7 +33,6 @@ import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.pose.PoseLandmark
 import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
 import java.util.concurrent.Executors
-import kotlin.math.hypot
 
 /**
  * Golf swing auto-recorder. Rear camera watches a friend; ML Kit pose + our club_head detector spot
@@ -117,8 +116,7 @@ class RecActivity : AppCompatActivity() {
         val t = System.nanoTime() / 1e9
         val det = club ?: ClubDetector(this).also { club = it }
         val scaled = Bitmap.createScaledBitmap(upright, ClubDetector.INPUT, ClubDetector.INPUT, true)
-        val allDets = det.detect(scaled)            // draw ALL (ball + club_head); address logic uses clubs
-        val clubs = allDets.filter { it.label == "club_head" }
+        val allDets = det.detect(scaled)            // ball + club_head (drawn, and used as golf evidence)
         if (scaled != upright) scaled.recycle()
         val w = upright.width; val h = upright.height
 
@@ -127,11 +125,10 @@ class RecActivity : AppCompatActivity() {
                 fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
                     ?.let { Pt(it.position.x / w, it.position.y / h) }
                 val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
-                // club near hands? (both normalized [0,1] of the same upright frame)
+                // golf evidence: a club_head OR ball sitting BELOW the hands — on the ground at the
+                // golfer's feet where they rest at address (NOT up near the grip). Either one counts.
                 val hands = if (lw != null && rw != null) Pt((lw.x + rw.x) / 2, (lw.y + rw.y) / 2) else (lw ?: rw)
-                if (hands != null && clubs.any {
-                        hypot((it.x1 + it.x2) / 2 - hands.x, (it.y1 + it.y2) / 2 - hands.y) < CLUB_NEAR
-                    }) address.noteClubNearHands(t)
+                if (hands != null && allDets.any { (it.y1 + it.y2) / 2 > hands.y }) address.noteClubOrBallLow(t)
                 val fired = address.update(t, lw, rw,
                     pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
                     pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
@@ -205,7 +202,6 @@ class RecActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "RecActivity"
-        private const val CLUB_NEAR = 0.25f      // club center within this (norm) of the hands = "at the hands"
         private const val MAX_REC_MS = 10_000L   // auto-stop a swing clip after this (no manual Stop button)
     }
 }
