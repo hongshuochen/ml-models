@@ -13,7 +13,7 @@ import kotlin.math.max
 /**
  * Transparent overlay on top of the camera preview. Maps golf detection boxes AND the ML Kit body
  * skeleton (both normalized to the upright camera frame) onto the view with the same cover-fit crop
- * the PreviewView uses (FILL_CENTER). ball = cyan, club_head = amber, pose = green.
+ * the PreviewView uses (FILL_CENTER). ball = cyan, club_head = amber, pose = white skeleton lines.
  */
 class OverlayView @JvmOverloads constructor(
     context: Context,
@@ -37,11 +37,14 @@ class OverlayView @JvmOverloads constructor(
     private val labelText = Paint().apply {
         color = Color.parseColor("#0b0f17"); textSize = 34f; isFakeBoldText = true; isAntiAlias = true
     }
-    private val posePaint = Paint().apply {
-        color = Color.parseColor("#4ade80"); style = Paint.Style.STROKE; strokeWidth = 5f; isAntiAlias = true
+    // skeleton = white line over a dark underlay, so it reads on any background (no joint dots)
+    private val poseOutline = Paint().apply {
+        color = Color.argb(150, 0, 0, 0); style = Paint.Style.STROKE; strokeWidth = 11f
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true
     }
-    private val poseDotPaint = Paint().apply {
-        color = Color.parseColor("#4ade80"); style = Paint.Style.FILL; isAntiAlias = true
+    private val posePaint = Paint().apply {
+        color = Color.WHITE; style = Paint.Style.STROKE; strokeWidth = 6f
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; isAntiAlias = true
     }
 
     /**
@@ -73,13 +76,16 @@ class OverlayView @JvmOverloads constructor(
         fun mapX(nx: Float) = (if (mirror) 1f - nx else nx) * srcW * scale + dx
         fun mapY(ny: Float) = ny * srcH * scale + dy
 
-        // --- ML Kit body skeleton (drawn first, under the boxes) ---
-        for ((a, b) in POSE_CONNECTIONS) {
-            val pa = pose[a] ?: continue
-            val pb = pose[b] ?: continue
-            canvas.drawLine(mapX(pa.x), mapY(pa.y), mapX(pb.x), mapY(pb.y), posePaint)
+        // --- ML Kit body skeleton: connection lines only (no joint dots) ---
+        // two passes: the dark underlay first, then the white line on top (contrast on any background)
+        for (pass in 0..1) {
+            val paint = if (pass == 0) poseOutline else posePaint
+            for ((a, b) in POSE_CONNECTIONS) {
+                val pa = pose[a] ?: continue
+                val pb = pose[b] ?: continue
+                canvas.drawLine(mapX(pa.x), mapY(pa.y), mapX(pb.x), mapY(pb.y), paint)
+            }
         }
-        for (p in pose.values) canvas.drawCircle(mapX(p.x), mapY(p.y), 8f, poseDotPaint)
 
         // --- golf detections (ball + club_head) ---
         for (d in detections) {

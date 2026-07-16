@@ -34,7 +34,6 @@ class AddressDetector(
 
     var state = State.SEARCHING; private set
     var lastClubSeen = -1e9; private set
-    var dbg = ""; private set     // TEMP: last-frame POSTURE sub-conditions, shown on-screen for tuning
 
     private var postureSince = -1.0
     private var lostSince = -1.0
@@ -79,7 +78,6 @@ class AddressDetector(
                 if (!fired && still && (t - postureSince) >= holdS && clubOk) {
                     fired = true; confirmed = true
                 }
-                dbg = "still=${if (still) "Y" else "N"} held=${"%.1f".format(t - postureSince)} club/ball=${if (clubOk) "Y" else "N"}"
                 state = if (fired) State.PROMPT else State.POSTURE
             }
             else -> {                                   // no posture -> HUMAN if a person is visible, else SEARCHING
