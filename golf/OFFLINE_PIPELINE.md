@@ -88,12 +88,29 @@ uv run python select_review_frames.py /path/to/new_videos out_review \
 Writes `out_review/images/*.jpg`, `out_review/labels/*.txt` (YOLO pre-labels), and
 `out_review/ls_tasks.json` (Label Studio import with pre-annotations, **including hole**).
 
-- Import `ls_tasks.json` into a **local** Label Studio project whose labeling config has three
-  rectangle labels: `ball`, `club_head`, `hole` (order matters — it must map 0/1/2).
-- Fix the boxes (the model is weakest on ball recall + the new hole class — the selector already
-  favors those frames). **Label every visible hole** — a frame that shows a cup but leaves it
-  unlabeled teaches "hole = background" (partial-label trap).
-- Export **YOLO** format → a dir with `images/` + `labels/`. Call it `out_review_corrected`.
+Set up Label Studio (isolated — its Django deps conflict with torch): `uv tool install label-studio`.
+Start it with local-file serving pointed at **this batch's out dir** (so `?d=images/…` resolves —
+`DOCUMENT_ROOT` must be the out dir itself, not its parent). Put the env vars INLINE so they can't
+be lost to the wrong shell:
+```bash
+LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true \
+LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/abs/path/to/out_review \
+label-studio start          # http://localhost:8080
+```
+Then in the UI:
+1. Create a project → Labeling Setup → **Code** → paste a 3-label RectangleLabels config
+   (values `ball` / `club_head` / `hole`, `<Image name="image">` + `<RectangleLabels name="label">`).
+2. **Import** `out_review/ls_tasks.json` via the **Import** button (NOT Sync).
+3. **Add a Local Storage or the images 404** — the env vars alone are NOT enough; this LS version
+   serves `/data/local-files/?d=…` only after a storage under the document root is registered:
+   Settings → Cloud Storage → Add Source Storage → Local files → Absolute path =
+   `/abs/path/to/out_review/images` (a **subdir** of DOCUMENT_ROOT) → Save, **do NOT Sync** (Sync
+   creates duplicate prediction-less tasks). A plain **404** on the image URL = this step is missing
+   (or DOCUMENT_ROOT is wrong); a 403 = serving not enabled.
+4. Fix the boxes (the model is weakest on ball recall + the new hole class — the selector already
+   favors those frames). **Label every visible hole** — a frame that shows a cup but leaves it
+   unlabeled teaches "hole = background" (partial-label trap).
+5. Export **YOLO** format → a dir with `images/` + `labels/`. Call it `out_review_corrected`.
 
 The 3-class model emits hole directly, so no separate `--hole-model` teacher is needed. (The
 `--hole-model` flag is the legacy bootstrap for when only a 2-class model existed.)
