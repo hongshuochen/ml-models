@@ -137,10 +137,9 @@ class RecActivity : AppCompatActivity() {
                 fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
                     ?.let { Pt(it.position.x / w, it.position.y / h) }
                 val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
-                // golf evidence: a club_head OR ball sitting BELOW the hands — on the ground at the
-                // golfer's feet where they rest at address (NOT up near the grip). Either one counts.
-                val hands = if (lw != null && rw != null) Pt((lw.x + rw.x) / 2, (lw.y + rw.y) / 2) else (lw ?: rw)
-                if (hands != null && allDets.any { (it.y1 + it.y2) / 2 > hands.y }) address.noteClubOrBallLow(t)
+                // golf evidence (relaxed): any club_head OR ball in view within the 1.5s memory window.
+                // The pose geometry already pins this to a golf address, so we don't constrain position.
+                if (allDets.isNotEmpty()) address.noteGolfEvidence(t)
                 val fired = address.update(t, lw, rw,
                     pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
                     pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
