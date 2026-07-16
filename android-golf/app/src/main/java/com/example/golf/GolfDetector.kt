@@ -77,7 +77,8 @@ class GolfDetector(context: Context) {
     }
 
     /** Try the Hexagon NPU (QNN HTP) first; fall back to CPU if QNN isn't available on this device.
-     *  The one-time HTP graph compile is cached (cacheDir + token) so only the first launch is slow.
+     *  HTP compiles the graph at load; kHtpOptimizeForPrepare keeps that to ~1.4 s (vs ~31 s with the
+     *  default OptimizeForInference) with no measurable inference cost — see the opts block below.
      *  Runs on a BACKGROUND thread (GolfActivity lazy-builds the detector on its analysis executor). */
     private fun buildInterpreter(context: Context): Interpreter {
         try {
@@ -91,6 +92,13 @@ class GolfDetector(context: Context) {
             } catch (e: Throwable) { Log.w(TAG, "could not set ADSP_LIBRARY_PATH", e) }
             val opts = QnnDelegate.Options().apply {
                 setBackendType(QnnDelegate.Options.BackendType.HTP_BACKEND)          // Hexagon NPU
+                // THE startup fix. HTP compiles the graph at load; the default (OptimizeForInference)
+                // spent ~31 s hard-optimizing on EVERY launch (measured on S25). OptimizeForPrepare
+                // compiles in ~1.4 s and inference stays ~14 ms @640 — the "less optimal graph"
+                // tradeoff is negligible here. (setCacheDir/setModelToken was tried and does NOT
+                // serialize this graph — it wrote only ~2 KB and warm launches stayed ~31 s — so we
+                // rely on the fast recompile, not a broken cache.)
+                setHtpOptimizationStrategy(QnnDelegate.Options.HtpOptimizationStrategy.HTP_OPTIMIZE_FOR_PREPARE)
                 // A third-party app must open the cDSP in UNSIGNED PD (signed PD is OEM-only) — without
                 // this the fastrpc transport fails ("Failed to create transport for device, error 4000").
                 setHtpPdSession(QnnDelegate.Options.HtpPdSession.HTP_PD_SESSION_UNSIGNED)
@@ -98,14 +106,19 @@ class GolfDetector(context: Context) {
                 setHtpUseConvHmx(QnnDelegate.Options.HtpUseConvHmx.HTP_CONV_HMX_ON)   // HMX matrix engine
                 setHtpPerformanceMode(QnnDelegate.Options.HtpPerformanceMode.HTP_PERFORMANCE_BURST)
                 setSkelLibraryDir(dspDir)                                            // DSP-readable skel dir
-                setCacheDir(context.cacheDir.absolutePath)                           // cache the compiled graph
-                setModelToken("golf_rawhead_v1")                                     // -> fast subsequent launches
             }
+            // Split timings (once per launch). compile+load is the old "slow load" — now ~1.4 s.
+            val t0 = System.nanoTime()
+            val model = loadModelFile(context)
+            val tModel = System.nanoTime()
             val d = QnnDelegate(opts)
-            val interp = Interpreter(loadModelFile(context), Interpreter.Options().addDelegate(d))
+            val tDelegate = System.nanoTime()
+            val interp = Interpreter(model, Interpreter.Options().addDelegate(d))
+            val tInterp = System.nanoTime()
             qnnDelegate = d
             backendName = "NPU"
-            Log.i(TAG, "QNN HTP delegate initialized")
+            Log.i(TAG, "QNN init: mmap=%.0f  delegate=%.0f  compile+load=%.0f ms".format(
+                (tModel - t0) / 1e6f, (tDelegate - tModel) / 1e6f, (tInterp - tDelegate) / 1e6f))
             return interp
         } catch (e: Throwable) {
             Log.w(TAG, "QNN NPU unavailable — falling back to CPU", e)
