@@ -155,7 +155,7 @@ class RecActivity : AppCompatActivity() {
                 statusText.text = when (address.state) {
                     AddressDetector.State.SEARCHING -> "Searching…"
                     AddressDetector.State.HUMAN -> "Human detected…"
-                    AddressDetector.State.POSTURE -> "Posture detected…"
+                    AddressDetector.State.POSTURE -> "Posture… ${address.dbg}"
                     AddressDetector.State.PROMPT -> "Ready to hit!"
                 }
                 if (fired && !recordingActive) showPrompt()
