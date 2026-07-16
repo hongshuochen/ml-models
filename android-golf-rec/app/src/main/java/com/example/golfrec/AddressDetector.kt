@@ -22,7 +22,7 @@ data class Pt(val x: Float, val y: Float)
  * so they hold across how big the person appears — tune on-device.
  */
 class AddressDetector(
-    private val holdS: Double = 0.8,       // s the posture must be held still to fire
+    private val holdS: Double = 0.4,       // s the posture must be held still to fire
     private val stillTol: Float = 0.03f,   // max wrist drift (frac of frame) over the hold window = "still"
     private val handsTogetherK: Float = 0.7f,  // wrists closer than this × shoulder width
     private val handsLowK: Float = 0.15f,      // wrists at/below hipY − this × torso
