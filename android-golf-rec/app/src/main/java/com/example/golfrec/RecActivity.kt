@@ -121,7 +121,7 @@ class RecActivity : AppCompatActivity() {
 
     /** Analysis thread: club detector (sync) + ML Kit pose (async) -> AddressDetector. */
     private fun analyze(image: ImageProxy) {
-        if (busy || prompting || recordingActive) { image.close(); return }   // skip while prompting/recording
+        if (busy || prompting) { image.close(); return }   // skip only while a prompt is up (keep running while recording)
         busy = true
         val upright = image.toUprightBitmap()
         image.close()
@@ -134,30 +134,35 @@ class RecActivity : AppCompatActivity() {
 
         poseDetector.process(InputImage.fromBitmap(upright, 0))
             .addOnSuccessListener { pose ->
-                fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
-                    ?.let { Pt(it.position.x / w, it.position.y / h) }
-                val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
-                // golf evidence (relaxed): any club_head OR ball in view within the 1.5s memory window.
-                // The pose geometry already pins this to a golf address, so we don't constrain position.
-                if (allDets.isNotEmpty()) address.noteGolfEvidence(t)
-                val fired = address.update(t, lw, rw,
-                    pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
-                    pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
-                    pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
-                // draw the ML Kit body skeleton + all golf detections (ball + club_head)
+                // ALWAYS draw the live skeleton + boxes — including during recording, so the overlay
+                // tracks the swing instead of freezing on the frame where recording started.
                 val posePts = HashMap<Int, android.graphics.PointF>()
                 for (lm in pose.allPoseLandmarks) {
                     if (lm.inFrameLikelihood > 0.5f)
                         posePts[lm.landmarkType] = android.graphics.PointF(lm.position.x / w, lm.position.y / h)
                 }
                 overlay.setResults(allDets, posePts, w, h, false, 0f)
-                statusText.text = when (address.state) {
-                    AddressDetector.State.SEARCHING -> "Searching…"
-                    AddressDetector.State.HUMAN -> "Human detected…"
-                    AddressDetector.State.POSTURE -> "Posture… ${address.dbg}"
-                    AddressDetector.State.PROMPT -> "Ready to hit!"
+
+                if (recordingActive) {
+                    statusText.text = "Recording…"       // don't re-run the address FSM mid-recording
+                } else {
+                    fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
+                        ?.let { Pt(it.position.x / w, it.position.y / h) }
+                    val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
+                    // golf evidence (relaxed): any club_head OR ball in view within the 1.5s memory window.
+                    if (allDets.isNotEmpty()) address.noteGolfEvidence(t)
+                    val fired = address.update(t, lw, rw,
+                        pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
+                        pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
+                        pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
+                    statusText.text = when (address.state) {
+                        AddressDetector.State.SEARCHING -> "Searching…"
+                        AddressDetector.State.HUMAN -> "Human detected…"
+                        AddressDetector.State.POSTURE -> "Posture… ${address.dbg}"
+                        AddressDetector.State.PROMPT -> "Ready to hit!"
+                    }
+                    if (fired) showPrompt()
                 }
-                if (fired && !recordingActive) showPrompt()
                 busy = false
             }
             .addOnFailureListener { busy = false }
