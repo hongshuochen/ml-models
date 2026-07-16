@@ -121,7 +121,7 @@ class RecActivity : AppCompatActivity() {
 
     /** Analysis thread: club detector (sync) + ML Kit pose (async) -> AddressDetector. */
     private fun analyze(image: ImageProxy) {
-        if (busy || prompting) { image.close(); return }   // skip only while a prompt is up (keep running while recording)
+        if (busy || prompting || recordingActive) { image.close(); return }   // skip while a prompt is up or recording
         busy = true
         val upright = image.toUprightBitmap()
         image.close()
@@ -134,35 +134,29 @@ class RecActivity : AppCompatActivity() {
 
         poseDetector.process(InputImage.fromBitmap(upright, 0))
             .addOnSuccessListener { pose ->
-                // ALWAYS draw the live skeleton + boxes — including during recording, so the overlay
-                // tracks the swing instead of freezing on the frame where recording started.
+                fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
+                    ?.let { Pt(it.position.x / w, it.position.y / h) }
+                val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
+                // golf evidence (relaxed): any club_head OR ball in view within the 1.5s memory window.
+                if (allDets.isNotEmpty()) address.noteGolfEvidence(t)
+                val fired = address.update(t, lw, rw,
+                    pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
+                    pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
+                    pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
+                // draw the ML Kit body skeleton + all golf detections (overlay is hidden during recording)
                 val posePts = HashMap<Int, android.graphics.PointF>()
                 for (lm in pose.allPoseLandmarks) {
                     if (lm.inFrameLikelihood > 0.5f)
                         posePts[lm.landmarkType] = android.graphics.PointF(lm.position.x / w, lm.position.y / h)
                 }
                 overlay.setResults(allDets, posePts, w, h, false, 0f)
-
-                if (recordingActive) {
-                    statusText.text = "Recording…"       // don't re-run the address FSM mid-recording
-                } else {
-                    fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
-                        ?.let { Pt(it.position.x / w, it.position.y / h) }
-                    val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
-                    // golf evidence (relaxed): any club_head OR ball in view within the 1.5s memory window.
-                    if (allDets.isNotEmpty()) address.noteGolfEvidence(t)
-                    val fired = address.update(t, lw, rw,
-                        pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
-                        pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
-                        pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
-                    statusText.text = when (address.state) {
-                        AddressDetector.State.SEARCHING -> "Searching…"
-                        AddressDetector.State.HUMAN -> "Human detected…"
-                        AddressDetector.State.POSTURE -> "Posture… ${address.dbg}"
-                        AddressDetector.State.PROMPT -> "Ready to hit!"
-                    }
-                    if (fired) showPrompt()
+                statusText.text = when (address.state) {
+                    AddressDetector.State.SEARCHING -> "Searching…"
+                    AddressDetector.State.HUMAN -> "Human detected…"
+                    AddressDetector.State.POSTURE -> "Posture… ${address.dbg}"
+                    AddressDetector.State.PROMPT -> "Ready to hit!"
                 }
+                if (fired && !recordingActive) showPrompt()
                 busy = false
             }
             .addOnFailureListener { busy = false }
@@ -198,9 +192,15 @@ class RecActivity : AppCompatActivity() {
             rec = rec.withAudioEnabled()
         recording = rec.start(ContextCompat.getMainExecutor(this)) { ev ->
             when (ev) {
-                is VideoRecordEvent.Start -> { recordingActive = true; recDot.visibility = View.VISIBLE }
+                is VideoRecordEvent.Start -> {
+                    recordingActive = true; recDot.visibility = View.VISIBLE
+                    overlay.visibility = View.GONE                 // hide skeleton/boxes while recording (clean view)
+                    statusText.text = "Recording…"
+                }
                 is VideoRecordEvent.Finalize -> {
-                    recordingActive = false; recDot.visibility = View.GONE; address.rearm()
+                    recordingActive = false; recDot.visibility = View.GONE
+                    overlay.visibility = View.VISIBLE              // show the overlay again after recording ends
+                    address.rearm()
                     Toast.makeText(this, if (ev.hasError()) "Recording error" else "Saved to Movies/GolfRec", Toast.LENGTH_SHORT).show()
                 }
             }
