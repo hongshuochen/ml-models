@@ -53,7 +53,7 @@ class RecActivity : AppCompatActivity() {
         override fun run() {
             if (!recordingActive) return
             val left = ((recEndAt - android.os.SystemClock.elapsedRealtime() + 999) / 1000).toInt().coerceIn(0, 99)
-            recDot.text = "● REC  ${left}s"                 // countdown to the auto-stop
+            recDot.text = "● REC  ${left / 60}:${(left % 60).toString().padStart(2, '0')}"  // 0:09 countdown
             main.postDelayed(this, 250)
         }
     }
