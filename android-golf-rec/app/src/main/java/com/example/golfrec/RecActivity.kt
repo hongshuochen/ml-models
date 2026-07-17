@@ -47,7 +47,16 @@ class RecActivity : AppCompatActivity() {
     private lateinit var overlay: OverlayView
     private lateinit var statusText: TextView
     private lateinit var promptPanel: View
-    private lateinit var recDot: View
+    private lateinit var recDot: TextView
+    private var recEndAt = 0L                               // elapsedRealtime when the current recording auto-stops
+    private val recTick = object : Runnable {
+        override fun run() {
+            if (!recordingActive) return
+            val left = ((recEndAt - android.os.SystemClock.elapsedRealtime() + 999) / 1000).toInt().coerceIn(0, 99)
+            recDot.text = "● REC  ${left}s"                 // countdown to the auto-stop
+            main.postDelayed(this, 250)
+        }
+    }
 
     private var club: ClubDetector? = null                 // lazy-built on the analysis thread
     private val address = AddressDetector()
@@ -194,6 +203,8 @@ class RecActivity : AppCompatActivity() {
             when (ev) {
                 is VideoRecordEvent.Start -> {
                     recordingActive = true; recDot.visibility = View.VISIBLE
+                    recEndAt = android.os.SystemClock.elapsedRealtime() + MAX_REC_MS
+                    main.post(recTick)                             // start the countdown
                     overlay.visibility = View.GONE                 // hide skeleton/boxes while recording (clean view)
                     statusText.text = "Recording"
                 }
