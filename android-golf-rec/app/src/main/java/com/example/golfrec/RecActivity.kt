@@ -136,13 +136,13 @@ class RecActivity : AppCompatActivity() {
             .addOnSuccessListener { pose ->
                 fun pt(id: Int): Pt? = pose.getPoseLandmark(id)?.takeIf { it.inFrameLikelihood > 0.5f }
                     ?.let { Pt(it.position.x / w, it.position.y / h) }
-                val lw = pt(PoseLandmark.LEFT_WRIST); val rw = pt(PoseLandmark.RIGHT_WRIST)
-                // golf evidence (relaxed): any club_head OR ball in view within the 1.5s memory window.
-                if (allDets.isNotEmpty()) address.noteGolfEvidence(t)
-                val fired = address.update(t, lw, rw,
-                    pt(PoseLandmark.LEFT_ELBOW), pt(PoseLandmark.RIGHT_ELBOW),
-                    pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER),
-                    pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
+                fun mid(a: Pt?, b: Pt?): Pt? =
+                    if (a != null && b != null) Pt((a.x + b.x) / 2, (a.y + b.y) / 2) else (a ?: b)
+                val shoulder = mid(pt(PoseLandmark.LEFT_SHOULDER), pt(PoseLandmark.RIGHT_SHOULDER))
+                val hip = mid(pt(PoseLandmark.LEFT_HIP), pt(PoseLandmark.RIGHT_HIP))
+                // club/ball LOW = any detection centre below the hip line (i.e. down at the ball)
+                val clubLow = hip != null && allDets.any { (it.y1 + it.y2) / 2 > hip.y }
+                val fired = address.update(t, shoulder, hip, clubLow)
                 // draw the ML Kit body skeleton + all golf detections (overlay is hidden during recording)
                 val posePts = HashMap<Int, android.graphics.PointF>()
                 for (lm in pose.allPoseLandmarks) {
