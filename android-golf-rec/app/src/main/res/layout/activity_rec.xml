@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|start"
         android:layout_margin="16dp"
-        android:text="Searching…"
+        android:text="Searching"
         android:textColor="#FFFFFF"
         android:textSize="18sp"
         android:textStyle="bold"

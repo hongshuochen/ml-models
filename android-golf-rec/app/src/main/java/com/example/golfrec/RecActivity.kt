@@ -151,9 +151,9 @@ class RecActivity : AppCompatActivity() {
                 }
                 overlay.setResults(allDets, posePts, w, h, false, 0f)
                 statusText.text = when (address.state) {
-                    AddressDetector.State.SEARCHING -> "Searching…"
-                    AddressDetector.State.HUMAN -> "Human detected…"
-                    AddressDetector.State.POSTURE -> "Posture detected…"
+                    AddressDetector.State.SEARCHING -> "Searching"
+                    AddressDetector.State.HUMAN -> "Human detected"
+                    AddressDetector.State.POSTURE -> "Posture detected"
                     AddressDetector.State.PROMPT -> "Ready to hit!"
                 }
                 if (fired && !recordingActive) showPrompt()
@@ -195,7 +195,7 @@ class RecActivity : AppCompatActivity() {
                 is VideoRecordEvent.Start -> {
                     recordingActive = true; recDot.visibility = View.VISIBLE
                     overlay.visibility = View.GONE                 // hide skeleton/boxes while recording (clean view)
-                    statusText.text = "Recording…"
+                    statusText.text = "Recording"
                 }
                 is VideoRecordEvent.Finalize -> {
                     recordingActive = false; recDot.visibility = View.GONE
