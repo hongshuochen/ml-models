@@ -70,8 +70,8 @@ def vid_id(root: Path, video: Path) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", str(rel))
 
 
-def load_done(out: Path) -> dict:
-    p = out / "stats.json"
+def load_done(out: Path, sfx: str = "") -> dict:
+    p = out / f"stats{sfx}.json"
     return json.loads(p.read_text()) if p.exists() else {}
 
 
@@ -293,7 +293,8 @@ def mine_video(model, video: Path, vid: str, out: Path, args):
         rows.append([name, vid, frame_ids[k], "+".join(sorted(set(tiers))), len(lines)])
         wrote += 1
 
-    mf = out / "manifest.csv"
+    _si, _sn = (int(x) for x in args.shard.split("/"))
+    mf = out / ("manifest.csv" if _sn == 1 else f"manifest_{_si}of{_sn}.csv")
     new = not mf.exists()
     with mf.open("a", newline="") as f:
         w = csv.writer(f)
@@ -326,6 +327,9 @@ def main():
     ap.add_argument("--min-bytes", type=int, default=1_000_000,
                     help="skip files smaller than this (fake/thumbnail mp4s)")
     ap.add_argument("--device", default="", help="'' auto, or e.g. 0 / cpu")
+    ap.add_argument("--shard", default="0/1", help="i/n: process only videos[i::n]. mining barely uses "
+                    "the GPU (CPU-bound video decode), so run several shards in PARALLEL to fill it — "
+                    "e.g. 4 procs: --shard 0/4 .. 3/4. Each shard keeps its own stats_/manifest_ file.")
     args = ap.parse_args()
 
     root = Path(args.videos_dir)
@@ -336,8 +340,12 @@ def main():
     videos = sorted(p for p in root.rglob("*.mp4") if p.stat().st_size >= args.min_bytes)
     if not videos:
         sys.exit(f"no .mp4 >= {args.min_bytes} bytes under {root}")
-    stats = load_done(out)
-    print(f"{len(videos)} videos under {root} ({sum(1 for v in videos if vid_id(root, v) in stats)} already mined)")
+    shard_i, shard_n = (int(x) for x in args.shard.split("/"))
+    sfx = "" if shard_n == 1 else f"_{shard_i}of{shard_n}"
+    videos = videos[shard_i::shard_n]
+    stats = load_done(out, sfx)
+    print(f"shard {shard_i}/{shard_n}: {len(videos)} videos "
+          f"({sum(1 for v in videos if vid_id(root, v) in stats)} already mined)")
 
     for i, v in enumerate(videos):
         vid = vid_id(root, v)
@@ -348,7 +356,7 @@ def main():
         except Exception as e:                     # keep the batch alive; record the failure
             s = {"error": str(e)}
         stats[vid] = s
-        (out / "stats.json").write_text(json.dumps(stats, indent=1))
+        (out / f"stats{sfx}.json").write_text(json.dumps(stats, indent=1))
         print(f"[{i + 1}/{len(videos)}] {vid}: {s}")
 
     tot = {k: sum(s.get(k, 0) for s in stats.values() if isinstance(s, dict))
