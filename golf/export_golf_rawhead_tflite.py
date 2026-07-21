@@ -10,10 +10,11 @@ conv+attention) and do threshold + per-class NMS in Kotlin. Two hard-won tricks 
   1. Monkeypatch `Detect.forward` to emit the 3 raw per-scale maps from the ONE2ONE branch:
      each `cat([box(4), cls(nc)], 1)` -> `[1, 4+nc, H, W]`, reg_max=1 so distances are DIRECT
      (no DFL, no sigmoid, no anchor decode on-graph).
-  2. Monkeypatch `Attention.forward` to unroll the multi-head matmuls to batch=1, AND run
-     `onnx2tf` with `enable_batchmatmul_unfold=False`. Ultralytics' float export path unfolds the
-     C2PSA attention BatchMatMuls into ~1600 FULLY_CONNECTED ops, which shatters the graph and the
-     delegate rejects it. Unrolled + unfold=False keeps it a clean conv graph the QNN HTP eats whole.
+  2. Run `onnx2tf` with `enable_batchmatmul_unfold=False`. Ultralytics' float export path unfolds
+     the C2PSA attention BatchMatMuls into ~1600 FULLY_CONNECTED ops, which shatters the graph and
+     the delegate rejects it. unfold=False keeps attention as 4 clean `BATCH_MATMUL` (3 delegate
+     partitions, ~18 ms on the S25 NPU). NOTE: do NOT also hand-unroll the attention per-head — that
+     adds ~24 GATHER + fragments the graph to 5 partitions and ~doubles NPU latency (measured 39 ms).
 
 Output TFLite: input `[1,640,640,3]` float32 NHWC; outputs `[1,80,80,4+nc] [1,40,40,4+nc]
 [1,20,20,4+nc]` (strides 8/16/32), channel order per cell `[l,t,r,b, cls0_logit ... clsN_logit]`.
@@ -39,7 +40,6 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 import torch  # noqa: E402
 from ultralytics import YOLO  # noqa: E402
 from ultralytics.nn.modules.head import Detect  # noqa: E402
-from ultralytics.nn.modules.block import Attention  # noqa: E402
 
 
 def raw_forward(self, x):
@@ -50,24 +50,6 @@ def raw_forward(self, x):
         cls = self.one2one_cv3[i](x[i])   # [1, nc, H, W]
         outs.append(torch.cat((box, cls), 1))
     return tuple(outs)
-
-
-def attn_unrolled(self, x):
-    """Per-head unrolled attention (batch=1 matmuls) to dodge onnx2tf's 4D batched-matmul mangling.
-    Mathematically identical to ultralytics.nn.modules.block.Attention.forward."""
-    B, C, H, W = x.shape
-    N = H * W
-    qkv = self.qkv(x)
-    q, k, v = qkv.view(B, self.num_heads, self.key_dim * 2 + self.head_dim, N).split(
-        [self.key_dim, self.key_dim, self.head_dim], dim=2)
-    outs = []
-    for h in range(self.num_heads):
-        qh, kh, vh = q[:, h], k[:, h], v[:, h]                       # [B,key,N] [B,key,N] [B,head,N]
-        attn = (torch.matmul(qh.transpose(-2, -1), kh) * self.scale).softmax(dim=-1)  # [B,N,N]
-        outs.append(torch.matmul(vh, attn.transpose(-2, -1)))       # [B,head,N]
-    out = torch.cat(outs, dim=1).view(B, C, H, W)
-    x = out + self.pe(v.reshape(B, C, H, W))
-    return self.proj(x)
 
 
 def main():
@@ -83,8 +65,9 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
 
     # Patch at class level so ultralytics' exporter (it calls model(im)) uses our raw graph.
+    # (Attention.forward is left STOCK — onnx2tf unfold=False keeps it as clean BATCH_MATMUL; do
+    #  NOT hand-unroll it, that fragments the NPU graph and ~doubles latency.)
     Detect.forward = raw_forward
-    Attention.forward = attn_unrolled
 
     m = YOLO(str(args.weights))
     det = m.model.model[-1]
