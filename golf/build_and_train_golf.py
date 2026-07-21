@@ -87,6 +87,25 @@ def video_of(path):
     return stem.rsplit("_f", 1)[0] if "_f" in stem else stem
 
 
+def label_of(img_path):
+    """images/->labels/ sibling .txt for an image path (Ultralytics' rule)."""
+    parts = list(Path(img_path).parts)
+    for i in range(len(parts) - 1, -1, -1):        # swap the LAST 'images' segment
+        if parts[i] == "images":
+            parts[i] = "labels"
+            break
+    return Path(*parts).with_suffix(".txt")
+
+
+def frame_has_class(img_path, cls_id):
+    """True if the frame's YOLO label file has any box of class cls_id."""
+    lp = label_of(img_path)
+    if not lp.is_file():
+        return False
+    tag = str(cls_id)
+    return any((ln.split() or [None])[0] == tag for ln in lp.read_text().splitlines())
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-weights", required=True,
@@ -106,6 +125,12 @@ def main():
     ap.add_argument("--patience", type=int, default=12, help="early-stop patience on the fixed val")
     ap.add_argument("--auto-cap-frac", type=float, default=0.5,
                     help="max fraction of TRAIN that may be auto-mined labels")
+    ap.add_argument("--protect-hole", action="store_true",
+                    help="don't let auto-mined data touch the 'hole' class: drop EVERY mined frame "
+                         "from any video that produced a hole detection (those green/putting clips "
+                         "likely hide holes the weak teacher missed -> partial-label poison). hole is "
+                         "then learned ONLY from trusted --old/--reviewed labels; mined still supplies "
+                         "ball/club from non-green footage. Recommended when mined hole >> hand-labeled.")
     ap.add_argument("--device", default="0")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true", help="assemble + check the dataset, don't train")
@@ -130,6 +155,19 @@ def main():
     trusted = drop_val(trusted, "trusted")
     mined = drop_val(mined, "mined")
 
+    # hole protection: mined hole labels come from a weak teacher and (per the diagnosis) swamp the
+    # tiny hand-labeled hole set + poison it via the partial-label trap. Drop every mined frame from
+    # a video that produced ANY hole -> hole is taught only by trusted labels; ball/club mined kept.
+    names = [s.strip() for s in args.names.split(",") if s.strip()]
+    if mined and args.protect_hole and "hole" in names:
+        hole_id = names.index("hole")
+        hole_vids = {video_of(p) for p in mined if frame_has_class(p, hole_id)}
+        before = len(mined)
+        mined = [p for p in mined if video_of(p) not in hole_vids]
+        n_trust_hole = sum(1 for p in trusted if frame_has_class(p, hole_id))
+        print(f"  [protect-hole] {len(hole_vids)} mined videos had a hole -> dropped {before - len(mined)} "
+              f"mined frames; hole now trained ONLY from {n_trust_hole} trusted hole frames")
+
     # cap auto-mined to a fraction of the final train set
     if mined and args.auto_cap_frac < 1.0:
         max_mined = int(args.auto_cap_frac / (1 - args.auto_cap_frac) * max(len(trusted), 1))
@@ -147,7 +185,6 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "train.txt").write_text("\n".join(train) + "\n")
     (out / "val.txt").write_text("\n".join(val_imgs) + "\n")
-    names = [s.strip() for s in args.names.split(",") if s.strip()]
     yaml = out / f"{args.name}.yaml"
     yaml.write_text(
         f"# {args.name}: fine-tune from golf_ego_v2 with new people/scenes\n"

@@ -143,6 +143,14 @@ uv run python build_and_train_golf.py \
 > the output dir (they already have an `images/` subdir). Trained weights land in
 > `runs/detect/golf_ego_v4_hole/weights/best.pt`, relative to where you run the command.
 
+**`--protect-hole` (use it if hole detection is weak):** auto-mined `hole` labels come from the
+current (weak) detector and easily swamp + poison the few hand-labeled holes — mined frames on the
+green that hide a hole the teacher missed teach "hole = background" (partial-label trap). With this
+flag, every mined frame from a video that produced ANY hole is dropped, so `hole` is learned ONLY
+from your trusted `--reviewed`/`--old` labels while mined still supplies ball/club from non-green
+footage. Check the ratio first: `cat out_mined/labels/*.txt | awk '$1==2' | wc -l` (mined holes) vs
+the same on `out_review_corrected` — if mined ≫ hand-labeled, turn it on and hand-label more holes.
+
 Fixed val + old-set mix-in + capped auto labels + early stopping guard against drift. The report
 prints per-class recall, e.g.:
 ```
