@@ -23,14 +23,15 @@ data class Detection(
 )
 
 /**
- * Golf detector — the deployed 2-class YOLO26 model (ball + club_head), exported with the ONE-TO-MANY
+ * Golf detector — the deployed 3-class YOLO26 model (ball + club_head + hole), exported with the ONE-TO-MANY
  * (raw) head so it runs on the Qualcomm Hexagon NPU: the end-to-end head's topk/GatherNd can't be
  * delegated (GPU *or* NPU), but the raw head is pure conv+attention that the QNN HTP delegate takes
  * whole (581/581 nodes, ~24 ms @640 on the S25 vs ~168 ms CPU). See [[android-golf-npu-deploy]].
  *
- * Model output = 3 NHWC feature maps `[1,80,80,6] [1,40,40,6] [1,20,20,6]` (strides 8/16/32). Per cell:
- * `[l,t,r,b, ball_logit, club_head_logit]` (reg_max=1 → distances are direct, NO DFL/softmax). Decode +
- * per-class NMS run here in Kotlin (the topk we moved off the graph). Backend: QNN NPU, else CPU.
+ * Model output = 3 NHWC feature maps `[1,80,80,4+nc] [1,40,40,4+nc] [1,20,20,4+nc]` (strides 8/16/32).
+ * Per cell: `[l,t,r,b, cls0_logit … clsN_logit]` (reg_max=1 → distances are direct, NO DFL/softmax) —
+ * nc = 2 (ball,club_head) or 3 (+hole), read from the output shape so the decode is class-count-agnostic.
+ * Decode + per-class NMS run here in Kotlin (the topk we moved off the graph). Backend: QNN NPU, else CPU.
  */
 class GolfDetector(context: Context) {
 
@@ -40,7 +41,9 @@ class GolfDetector(context: Context) {
         const val NMS_IOU = 0.5f
         private const val ASSET = "golf.tflite"
         private const val TAG = "GolfDetector"
-        private val LABELS = arrayOf("ball", "club_head")
+        // Must match the model's class order (YOLO ids). 3-class golf_ego_v*_hole = ball,club_head,hole;
+        // the 2-class legacy model just has the first two. The decoder reads nc from the tensor shape.
+        private val LABELS = arrayOf("ball", "club_head", "hole")
     }
 
     private val interpreter: Interpreter
@@ -170,10 +173,13 @@ class GolfDetector(context: Context) {
                 val row = map[y]
                 for (x in 0 until grid) {
                     val c = row[x]
-                    val sBall = sigmoid(c[4]); val sClub = sigmoid(c[5])
-                    val score = if (sBall >= sClub) sBall else sClub
+                    // channels: [l,t,r,b, cls0_logit … clsN_logit]. argmax over the class logits
+                    // (sigmoid is monotonic, so argmax on logits == argmax on prob — sigmoid once).
+                    var cls = 0
+                    var bestLogit = c[4]
+                    for (k in 5 until c.size) if (c[k] > bestLogit) { bestLogit = c[k]; cls = k - 4 }
+                    val score = sigmoid(bestLogit)
                     if (score < SCORE_THRESHOLD) continue
-                    val cls = if (sClub > sBall) 1 else 0
                     val ax = x + 0.5f; val ay = y + 0.5f
                     val x1 = ((ax - c[0]) * stride * inv).coerceIn(0f, 1f)
                     val y1 = ((ay - c[1]) * stride * inv).coerceIn(0f, 1f)

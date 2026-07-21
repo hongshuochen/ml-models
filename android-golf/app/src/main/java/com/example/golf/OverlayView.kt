@@ -11,7 +11,7 @@ import kotlin.math.max
 /**
  * Transparent overlay on top of the camera preview. Maps golf detection boxes (normalized to the
  * upright camera frame) onto the view with the same cover-fit crop the PreviewView uses
- * (FILL_CENTER). ball = cyan, club_head = amber; plus a small detection/latency HUD.
+ * (FILL_CENTER). ball = cyan, club_head = amber, hole = green; plus a small detection/latency HUD.
  */
 class OverlayView @JvmOverloads constructor(
     context: Context,
@@ -29,6 +29,9 @@ class OverlayView @JvmOverloads constructor(
     }
     private val clubPaint = Paint().apply {
         color = Color.parseColor("#f59e0b"); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true
+    }
+    private val holePaint = Paint().apply {   // 3-class model: hole = green
+        color = Color.parseColor("#22c55e"); style = Paint.Style.STROKE; strokeWidth = 6f; isAntiAlias = true
     }
     private val labelBg = Paint().apply { style = Paint.Style.FILL; isAntiAlias = true }
     private val labelText = Paint().apply {
@@ -70,7 +73,7 @@ class OverlayView @JvmOverloads constructor(
             val top = d.y1 * srcH * scale + dy
             val bottom = d.y2 * srcH * scale + dy
 
-            val paint = if (d.label == "club_head") clubPaint else ballPaint
+            val paint = when (d.label) { "club_head" -> clubPaint; "hole" -> holePaint; else -> ballPaint }
             canvas.drawRect(left, top, right, bottom, paint)
 
             val text = "${d.label} ${(d.score * 100).toInt()}%"

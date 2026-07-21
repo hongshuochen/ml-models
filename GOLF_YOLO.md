@@ -1,26 +1,48 @@
 # Golf YOLO Detector — Model Card
 
 The object detector behind the egocentric (AR-glasses / head-cam) golf pipeline: per-frame
-`ball` / `club_head` boxes, consumed by the hit counter (`golf/hit_detector.py`) and the Android
-live counter. Numbers measured 2026-07-10.
+`ball` / `club_head` / `hole` boxes, consumed by the hit counter (`golf/hit_detector.py`) and the
+Android live counter. The 2-class ego numbers were measured 2026-07-10; the 3-class `hole` model
+(`golf_ego_v3_hole` → `golf_ego_v4_hole`) added the putting-cup class 2026-07.
 
 ## Architecture
 
 | | |
 |---|---|
-| Model | **YOLO26s**, fine-tuned on our egocentric footage (`golf_ego_v2_1280`) |
-| Classes | 2 — `ball` (0), `club_head` (1) |
+| Model | **YOLO26s**, fine-tuned on our egocentric footage (`golf_ego_v*_hole`) |
+| Classes | 3 — `ball` (0), `club_head` (1), `hole` (2) |
 | Parameters / compute | **9.95 M** params · 22.5 GFLOPs @640 (~90 GFLOPs @1280) |
-| Head | anchor-free, **end-to-end NMS-free** — no NMS post-processing on device |
-| Output | `(1, 300, 6)` = 300 detections × `[x1, y1, x2, y2, conf, cls]`, already final |
+| Head | anchor-free, **end-to-end NMS-free** — no NMS on device (but see the export note) |
+| Output (on device) | 3 raw NHWC maps `[1,80,80,7] [1,40,40,7] [1,20,20,7]` (strides 8/16/32); per cell `[l,t,r,b, ball,club_head,hole logits]`, reg_max=1 (no DFL) |
 | Input | RGB square letterbox — **1280×1280** offline, **640×640** on device |
-| Weights | `runs/detect/golf_ego_v2_1280/weights/best.pt` → exported TFLite **float16** (`android/app/src/main/assets/golf.tflite`) |
+| Weights | `runs/detect/golf_ego_v4_hole/weights/best.pt` → raw-head TFLite **float16** (`android-golf/app/src/main/assets/golf.tflite`) |
+
+### On-device head: RAW, not end-to-end
+
+The offline `.pt` uses YOLO26's end-to-end NMS-free head (`(1,300,6)` final list). That head bakes
+`TopK`/`GatherNd`/INT64 casts that **no mobile delegate (GPU or NPU) can run** → the whole model
+falls back to CPU. So for the phone we re-export the **raw one-to-many head** (pure conv+attention)
+and do threshold + per-class NMS in Kotlin (`GolfDetector.kt`). This is what lets the Qualcomm
+Hexagon NPU take the graph whole (~18 ms @640 on the S25). Reproduce with:
+
+```bash
+uv run python golf/export_golf_rawhead_tflite.py \
+    --weights runs/detect/golf_ego_v4_hole/weights/best.pt --out golf.tflite
+```
+
+The script monkeypatches `Detect.forward` (raw one2one maps) + `Attention.forward` (unrolled
+matmuls) and runs `onnx2tf` with `enable_batchmatmul_unfold=False` — without those the C2PSA
+attention shatters into ~1600 `FULLY_CONNECTED` ops and the delegate rejects it. It is
+class-count-generic (2- or 3-class); the Kotlin decoder reads `nc` from the output shape, so only
+`LABELS` in `GolfDetector.kt` needs the extra `"hole"` entry (already added). See the
+`android-golf-npu-deploy` notes for the full NPU story.
 
 ## Benchmark
 
 Egocentric validation set: **290 images / 448 boxes**, real AR-glasses footage (2048×1536
-portrait, fisheye), split **video-disjoint** from training (no frame leakage).
-`yolo val` @1280:
+portrait, fisheye), split **video-disjoint** from training (no frame leakage). `yolo val` @1280.
+
+2-class baseline (`golf_ego_v2_1280`, 2026-07-10):
 
 | Class | mAP50 | Precision | Recall |
 |---|---|---|---|
@@ -28,7 +50,18 @@ portrait, fisheye), split **video-disjoint** from training (no frame leakage).
 | club_head | 0.903 | 0.957 | 0.860 |
 | **all** | **0.881** | **0.933** | **0.824** |
 
-Known weakness: ball recall (small white ball at distance); club_head is strong.
+3-class (`golf_ego_v4_hole`, 2026-07-21) on the same fixed val:
+
+| Class | mAP50 | Precision | Recall |
+|---|---|---|---|
+| ball | 0.866 | 0.883 | 0.800 |
+| club_head | 0.894 | 0.919 | 0.875 |
+| **all** | **0.879** | **0.901** | **0.838** |
+
+Δ vs baseline: mAP50 flat, **ball recall +0.013** — no forgetting from the added reviewed+mined
+data. **`hole` recall is NOT in these numbers** — the fixed val predates the hole class and has no
+hole labels; to actually track cup recall, add a few held-out hole-labeled putting clips to `--val`
+and re-run `yolo val`. Known weakness carried over: ball recall (small white ball at distance).
 
 ## Model size
 

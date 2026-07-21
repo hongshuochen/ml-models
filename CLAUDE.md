@@ -38,6 +38,14 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
   from `vocab.json`) — DJL's native tokenizer has no Android ABIs. Spec verified in
   `android-caption/florence_onnx_demo.py`.
 - **YOLO26 is NMS-free / end-to-end.** Detect output `(1,300,6)` = `[x1,y1,x2,y2,conf,cls]`; pose `(1,300,69)`.
+- **The golf detector's phone build needs the RAW head, not e2e.** YOLO26's e2e head bakes
+  TopK/GatherNd/INT64 that NO mobile delegate (GPU or NPU) runs → CPU fallback. Deploy path =
+  `golf/export_golf_rawhead_tflite.py` (monkeypatches `Detect.forward`→raw one2one maps +
+  `Attention.forward`→unrolled matmuls, then `onnx2tf enable_batchmatmul_unfold=False` — else C2PSA
+  attention explodes into ~1600 `FULLY_CONNECTED` and the delegate rejects it). Emits 3 raw NHWC maps
+  `[1,G,G,4+nc]` (per cell `[l,t,r,b, cls logits]`, reg_max=1, no DFL); Kotlin (`GolfDetector.kt`) does
+  sigmoid+argmax+per-class NMS and reads `nc` from the shape (2- or 3-class generic — only `LABELS`
+  changes). Parity-verified vs the e2e `.pt` on ball/club/hole. See [[android-golf-npu-deploy]].
 - **hand-keypoints `flip_idx` is broken upstream** → always use `hand-keypoints-fixed.yaml` (identity flip_idx); the stock one scrambles mirrored-hand keypoints.
 - **Web app must use float16/float32 — NOT int8.** tfjs-tflite's WASM runtime can't initialize
   dynamic-range int8 (hybrid) ops ("Can't initialize model"). int8 is fine for native/ARM only.

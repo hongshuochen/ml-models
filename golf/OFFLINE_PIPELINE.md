@@ -163,6 +163,32 @@ uv run python annotate_status.py /path/to/a_clip.mp4 out.mp4 --model runs/detect
 Overlays ball/club/hole boxes, trail, ball speed, and a MADE-PUTT / HITS tally — a fast way to
 confirm the new model behaves before copying `best.pt` back for export/deployment.
 
-## Bring back to the training/deploy machine
-Copy `runs/detect/golf_ego_v4_hole/weights/best.pt` back; export + deploy as before
-(the raw-head TFLite → QNN NPU path in `android-golf`).
+## 5. Export the phone model (raw-head TFLite) + deploy
+
+The Android app runs on the Qualcomm NPU, which needs the **raw one-to-many head** (the end-to-end
+head's TopK/GatherNd can't be delegated). Don't use `yolo export` — use the committed script, which
+bakes in the two tricks that keep the graph delegate-friendly (raw head + unrolled attention +
+`onnx2tf enable_batchmatmul_unfold=False`):
+
+```bash
+uv pip install onnx onnxsim onnx2tf tensorflow      # once (heavier than the train env)
+uv run python export_golf_rawhead_tflite.py \
+    --weights runs/detect/golf_ego_v4_hole/weights/best.pt \
+    --out golf.tflite
+# verify it prints:  output: [[1,80,80,7],[1,40,40,7],[1,20,20,7]]  (7 = 4 box + 3 classes)
+```
+
+Then on the deploy machine: drop `golf.tflite` into `android-golf/app/src/main/assets/`, rebuild
+(`JAVA_HOME=/opt/android-studio/jbr ./gradlew :app:assembleDebug`), `adb install` to the phone.
+The Kotlin decoder is class-count-generic (reads `nc` from the tensor); `LABELS` in `GolfDetector.kt`
+already lists `ball,club_head,hole`. `OverlayView` draws ball=cyan, club_head=amber, hole=green.
+
+> The `golf.tflite` (~19 MB) is the ONE file that must leave this box for a phone test — it's a
+> derived model, not source data. If it must stay in, do the Android build + `adb install` here too
+> (the app source arrives via `git pull`). Either way, get the model onto the phone; there's no
+> phone test without it.
+
+**Shortcut:** you don't strictly need to export on this box. `best.pt` (~20 MB) is the minimal
+thing to move out, and the deploy machine already has the export deps + the phone — running the
+export there lets it be verified/parity-checked before shipping. `golf_ego_v3_hole/best.pt` already
+lives on the deploy machine (a 3-class model ~= v4), so a first phone test needs nothing out at all.
