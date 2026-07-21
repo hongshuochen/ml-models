@@ -97,8 +97,24 @@ def main():
     print("ONNX:", onnx_path)
 
     # 2) ONNX -> TFLite via onnx2tf, unfold=False (keeps attention as clean matmuls, not 1600 FCs)
+    import numpy as np
     import onnx
     import onnx2tf
+
+    # onnx2tf downloads a 20x128x128x3 "calibration" npy from GitHub for its internal per-op accuracy
+    # check. On an offline/network-restricted box that download returns garbage -> np.load pickle error
+    # ("Cannot load file containing pickled data"). It looks for the file in CWD first, so pre-place a
+    # valid dummy (values are irrelevant — we parity-check the real model ourselves). Fully offline.
+    calib = os.path.join(os.getcwd(), "calibration_image_sample_data_20x128x128x3_float32.npy")
+    need = True
+    if os.path.isfile(calib):
+        try:
+            np.load(calib); need = False
+        except Exception:
+            need = True
+    if need:
+        np.save(calib, np.random.default_rng(0).random((20, 128, 128, 3), dtype=np.float32))
+        print("wrote offline calibration stub:", calib)
     mo = onnx.load(onnx_path)
     print("ONNX outputs:", [(o.name, [d.dim_value for d in o.type.tensor_type.shape.dim])
                             for o in mo.graph.output])
