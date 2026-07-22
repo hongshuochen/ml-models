@@ -15,7 +15,7 @@ Android live counter. The 2-class ego numbers were measured 2026-07-10; the 3-cl
 | Head | anchor-free, **end-to-end NMS-free** — no NMS on device (but see the export note) |
 | Output (on device) | 3 raw NHWC maps `[1,80,80,7] [1,40,40,7] [1,20,20,7]` (strides 8/16/32); per cell `[l,t,r,b, ball,club_head,hole logits]`, reg_max=1 (no DFL) |
 | Input | RGB square letterbox — **1280×1280** offline, **640×640** on device |
-| Weights | `runs/detect/golf_ego_v4_hole/weights/best.pt` → raw-head TFLite **float16** (`android-golf/app/src/main/assets/golf.tflite`) |
+| Weights | `runs/detect/golf_ego_v5_nomined/weights/best.pt` → raw-head TFLite **float16** (`android-golf/app/src/main/assets/golf_v<N>.tflite`; the app auto-loads the highest version and shows it in the HUD) |
 
 ### On-device head: RAW, not end-to-end
 

@@ -39,7 +39,9 @@ class GolfDetector(context: Context) {
         const val INPUT = 640            // square model input
         const val SCORE_THRESHOLD = 0.5f // keep a cell above this class prob (post-sigmoid)
         const val NMS_IOU = 0.5f
-        private const val ASSET = "golf.tflite"
+        private const val FALLBACK_ASSET = "golf.tflite"
+        // versioned model file: golf_v<N>.tflite (highest N wins), else the legacy golf.tflite
+        private val MODEL_RE = Regex("golf_v(\\d+)\\.tflite")
         private const val TAG = "GolfDetector"
         // Must match the model's class order (YOLO ids). 3-class golf_ego_v*_hole = ball,club_head,hole;
         // the 2-class legacy model just has the first two. The decoder reads nc from the tensor shape.
@@ -49,6 +51,10 @@ class GolfDetector(context: Context) {
     private val interpreter: Interpreter
     private var qnnDelegate: QnnDelegate? = null
     private var backendName = "CPU"
+
+    /** The .tflite asset actually loaded, and its version tag ("v5" / "" for the legacy file). */
+    private val assetName: String
+    val modelVersion: String
 
     /** "NPU" / "CPU" — the accelerator that actually initialized (shown in the HUD). */
     val backend: String get() = backendName
@@ -67,6 +73,14 @@ class GolfDetector(context: Context) {
     private val outputsMap = HashMap<Int, Any>()
 
     init {
+        // pick the highest golf_v<N>.tflite in assets (falls back to golf.tflite) — lets us ship a
+        // versioned model + show the version in the HUD without editing code per release.
+        val assets = try { context.assets.list("")?.toList() ?: emptyList() } catch (e: Exception) { emptyList() }
+        val best = assets.mapNotNull { f -> MODEL_RE.matchEntire(f)?.let { it to it.groupValues[1].toInt() } }
+            .maxByOrNull { it.second }
+        assetName = best?.first?.value ?: FALLBACK_ASSET
+        modelVersion = best?.let { "v${it.second}" } ?: ""
+        Log.i(TAG, "golf model asset = $assetName (version '$modelVersion')")
         interpreter = buildInterpreter(context)
         for (i in 0 until interpreter.outputTensorCount) {
             val shape = interpreter.getOutputTensor(i).shape()   // [1, G, G, 6]
@@ -133,7 +147,7 @@ class GolfDetector(context: Context) {
 
     /** Memory-map the .tflite from assets (requires noCompress "tflite" in Gradle). */
     private fun loadModelFile(context: Context): MappedByteBuffer {
-        context.assets.openFd(ASSET).use { fd ->
+        context.assets.openFd(assetName).use { fd ->
             FileInputStream(fd.fileDescriptor).use { input ->
                 return input.channel.map(FileChannel.MapMode.READ_ONLY, fd.startOffset, fd.declaredLength)
             }

@@ -186,7 +186,10 @@ uv run python export_golf_rawhead_tflite.py \
 # verify it prints:  output: [[1,80,80,7],[1,40,40,7],[1,20,20,7]]  (7 = 4 box + 3 classes)
 ```
 
-Then on the deploy machine: drop `golf.tflite` into `android-golf/app/src/main/assets/`, rebuild
+The `deploy_golf_to_android.sh` wrapper names the asset by version (`golf_v5.tflite` from a
+`golf_ego_v5_*` weights path), clears older `golf*.tflite`, and the app auto-loads the highest
+`golf_v<N>.tflite` and prints the version in the HUD (`NPU v5 • …`). Manually: drop the .tflite into
+`android-golf/app/src/main/assets/` (any `golf_v<N>.tflite` name), rebuild
 (`JAVA_HOME=/opt/android-studio/jbr ./gradlew :app:assembleDebug`), `adb install` to the phone.
 The Kotlin decoder is class-count-generic (reads `nc` from the tensor); `LABELS` in `GolfDetector.kt`
 already lists `ball,club_head,hole`. `OverlayView` draws ball=cyan, club_head=amber, hole=green.

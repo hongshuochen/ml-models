@@ -111,7 +111,8 @@ class GolfActivity : AppCompatActivity() {
                 hits.state == "ADDRESS" || hits.state == "PEND" -> "PREPARE"
                 else -> "IDLE"
             }
-            val backend = det.backend
+            // backend + model version, e.g. "NPU v5" (version omitted for the legacy unversioned file)
+            val backend = if (det.modelVersion.isEmpty()) det.backend else "${det.backend} ${det.modelVersion}"
             if (++frameCount % 20 == 0) Log.i("GolfLatency",
                 "%s  det.detect avgMs=%.1f  fps=%.1f  (last %.1f ms, %d dets)"
                     .format(backend, avgMs, if (avgMs > 0) 1000f / avgMs else 0f, ms, dets.size))
