@@ -114,6 +114,12 @@ def main():
     ap.add_argument("--per-video-cap", type=int, default=40)
     ap.add_argument("--novelty", type=float, default=1.0, help="diversity weight (higher = spread wider)")
     ap.add_argument("--min-bytes", type=int, default=1_000_000)
+    ap.add_argument("--exclude-trained", nargs="*", default=[],
+                    help="dirs whose frames were already used for TRAINING (e.g. out_review_corrected "
+                         "out_mined and any --old dataset). Any source video that contributed a frame "
+                         "to these is skipped ENTIRELY, so the selected set is video-disjoint from train "
+                         "— required when building a held-out val/test (else the metric leaks). Reads "
+                         "the '<video-id>_f######' frame names to recover the used video ids.")
     ap.add_argument("--device", default="")
     ap.add_argument("--ls-prefix", default="/data/local-files/?d=images/",
                     help="Label Studio local-storage URL prefix for the images/ folder")
@@ -127,6 +133,25 @@ def main():
     videos = sorted(p for p in root.rglob("*.mp4") if p.stat().st_size >= args.min_bytes)
     if not videos:
         sys.exit(f"no .mp4 >= {args.min_bytes} bytes under {root}")
+
+    # video-disjoint guard: drop every source video that already contributed a frame to a training set
+    if args.exclude_trained:
+        used = set()
+        for d in args.exclude_trained:
+            dp = Path(d)
+            if not dp.exists():
+                print(f"  [exclude-trained] WARNING: {d} not found, skipping")
+                continue
+            for f in dp.rglob("*"):                                       # recursive: handles images/train nesting
+                if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png", ".txt"):
+                    used.add(f.stem.rsplit("_f", 1)[0])                   # '<video-id>_f######' -> '<video-id>'
+        before = len(videos)
+        videos = [v for v in videos if vid_id(root, v) not in used]
+        print(f"[exclude-trained] {len(used)} trained video-ids -> skipped {before - len(videos)} "
+              f"of {before} videos; {len(videos)} candidates remain (video-disjoint from train)")
+        if not videos:
+            sys.exit("all videos were already used in training — reserve some fresh clips for the val")
+
     print(f"{len(videos)} videos; coarse-scanning at {args.coarse_sec}s spacing"
           + (" (+hole teacher)" if hole_model else "") + "...")
 
