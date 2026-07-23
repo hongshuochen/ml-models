@@ -43,10 +43,14 @@ def main():
     ap.add_argument("videos_dir")
     ap.add_argument("out_dir")
     ap.add_argument("--model", default="sam3.pt", help="SAM 3 / 3.1 checkpoint (.pt)")
-    ap.add_argument("--prompts", default="golf ball:ball,golf club head:club_head,golf hole:hole",
-                    help="comma list of 'text prompt:class_name'; the ORDER is the YOLO class id "
-                         "(so keep it = ball,club_head,hole to match the golf detector)")
-    ap.add_argument("--conf", type=float, default=0.25, help="keep detections above this")
+    ap.add_argument("--prompts",
+                    default="a small white golf ball on the grass:ball,a golf club head:club_head,"
+                            "a golf hole cup on the green:hole",
+                    help="comma list of 'text prompt:class_name'; ORDER = YOLO class id (keep "
+                         "ball,club_head,hole). BE SPECIFIC — bare 'golf ball' over-fires on any round "
+                         "object (verified: device icons -> many FPs); the specific phrasing is clean.")
+    ap.add_argument("--conf", type=float, default=0.4, help="keep detections above this (SAM3 scores "
+                    "are 0-1; 0.4-0.5 works well)")
     ap.add_argument("--imgsz", type=int, default=1024, help="inference size (higher helps the small ball)")
     ap.add_argument("--stride", type=int, default=5, help="write every Nth frame (SAM still tracks every frame)")
     ap.add_argument("--min-bytes", type=int, default=1_000_000)
