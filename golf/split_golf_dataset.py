@@ -49,14 +49,31 @@ def scan(root: Path):
     return people
 
 
-def pack(names, videos_of, targets):
-    """Greedy: assign each person (largest first) to the split with the biggest remaining deficit."""
-    got = {s: 0 for s in targets}
+def allocate(sizes, total):
+    """Spread an integer count across groups proportional to size (largest-remainder)."""
+    tot = sum(sizes.values()) or 1
+    raw = {g: total * n / tot for g, n in sizes.items()}
+    base = {g: int(raw[g]) for g in raw}
+    for g in sorted(raw, key=lambda g: raw[g] - base[g], reverse=True)[: total - sum(base.values())]:
+        base[g] += 1
+    return base
+
+
+def pack(names, videos_of, slots, vtargets):
+    """Fill EXACT people-count `slots` per eval split. Iterate people in the caller's (shuffled) order
+    — NOT largest-first, which would stuff the small eval sets with the biggest people and blow past
+    the video target — and among open slots send each to the split most behind its VIDEO target, so
+    val vs test stay balanced. Eval video-share then tracks the people-share you asked for."""
+    got = {s: 0 for s in list(slots) + ["train"]}
+    left = dict(slots)
     out = {}
-    for name in sorted(names, key=lambda n: -videos_of[n]):
-        s = max(targets, key=lambda k: targets[k] - got[k])   # most-behind-its-target split
+    for name in names:
+        opts = [s for s in slots if left[s] > 0] or ["train"]
+        s = max(opts, key=lambda k: vtargets.get(k, 0) - got[k])
         out[name] = s
         got[s] += videos_of[name]
+        if s in left:
+            left[s] -= 1
     return out
 
 
@@ -65,7 +82,10 @@ def main():
     ap.add_argument("root")
     ap.add_argument("--val-frac", type=float, default=0.15)
     ap.add_argument("--test-frac", type=float, default=0.15)
-    ap.add_argument("--pin-val", default="", help="comma names forced into val (e.g. hole footage)")
+    ap.add_argument("--val-people", type=int, default=0, help="exact # people in val (0 = derive from --val-frac)")
+    ap.add_argument("--test-people", type=int, default=0, help="exact # people in test (0 = derive from --test-frac); "
+                    "raise for more identity diversity in the final benchmark")
+    ap.add_argument("--pin-val", default="", help="comma names forced into val")
     ap.add_argument("--pin-test", default="", help="comma names forced into test")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="golf_split_manifest.csv")
@@ -87,19 +107,27 @@ def main():
 
     rng = random.Random(args.seed)
     assign = dict(pin)
+    P = len(people)
+    # how many PEOPLE go to each eval split (controls diversity), minus those already pinned there
+    want = {"val": args.val_people or round(args.val_frac * P),
+            "test": args.test_people or round(args.test_frac * P)}
+    need = {s: max(0, want[s] - sum(1 for v in pin.values() if v == s)) for s in want}
+
     # stratify by domain membership so Indoor & Outdoor both spread across splits
-    groups = defaultdict(list)
+    groups = {}
     for n, r in people.items():
         if n in assign:
             continue
-        groups["+".join(sorted(r["domains"]))].append(n)
+        groups.setdefault("+".join(sorted(r["domains"])), []).append(n)
+    sizes = {g: len(ns) for g, ns in groups.items()}
+    per_group = {s: allocate(sizes, need[s]) for s in need}   # people-count per (split, group)
 
-    for _, names in groups.items():
-        rng.shuffle(names)                                    # tie-break stability across equal sizes
+    for g, names in groups.items():
+        rng.shuffle(names)                                    # deterministic tie-break
         gv = sum(videos_of[n] for n in names)
-        tgt = {"test": gv * args.test_frac, "val": gv * args.val_frac,
-               "train": gv * (1 - args.val_frac - args.test_frac)}
-        assign.update(pack(names, videos_of, tgt))
+        slots = {"val": per_group["val"][g], "test": per_group["test"][g]}
+        vtgt = {"test": gv * args.test_frac, "val": gv * args.val_frac}
+        assign.update(pack(names, videos_of, slots, vtgt))
 
     # ---- write manifest + summary ----
     rows = []
