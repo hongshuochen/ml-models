@@ -18,9 +18,13 @@ H100 box (no Claude there). Script: `golf/sam3_label_golf.py` (standalone: ultra
 - **`facebook/sam3`** → `sam3.pt` (single .pt, ultralytics 8.4.70 loads it). Runs at **imgsz 1024 on 10GB**.
 - **`facebook/sam3.1`** → `sam3.1_multiplex.pt` (also loads). **Heavier — OOMs at 1024 on 10GB, runs at
   640**; needs **~24GB for imgsz 1280**. Both find the ball cleanly; use 3.1 (newer) on the 3090 @ 1280.
-- **conf matters more than the exact prompt**: bare `"golf ball"` @ **0.65** OR `"a golf ball"`/`"a small
-  white golf ball on the grass"` @ **0.5** all give 1 clean box on the ball; the words "white"/"grass"
-  are NOT required (verified finding a white ball in a sand bunker) → colored balls / non-grass are fine.
+- **Prompt = a SHORT NOUN PHRASE, per Meta's docs** (their README examples are literally `"ear"`,
+  `"handle"`, `"dial"`, `"laptop"`; the model card says "a short text phrase"). So use `"golf ball"` /
+  `"golf club head"` / `"golf hole"` — NO article ("a"), NO descriptive sentence, NO color/surface words
+  (they can hurt recall on colored balls / off-grass lies). A/B verified: article makes no difference.
+- **conf is the FP lever, not the wording**: `"golf ball"` @ 0.25 over-fires on any round object (device
+  icons → 6 boxes/frame), but @ **0.5** it's a single clean box on the real ball (verified on ball AND
+  club_head). The concept model returns ALL instances, so multi-ball scenes get every ball — good.
 - On an H100 (80 GB) all of this is trivial; use the **2nd GPU for throughput** (split videos), not model-parallel.
 
 ## 1. Setup (once, needs internet)

@@ -44,11 +44,10 @@ def main():
     ap.add_argument("out_dir")
     ap.add_argument("--model", default="sam3.pt", help="SAM 3 / 3.1 checkpoint (.pt)")
     ap.add_argument("--prompts",
-                    default="a golf ball:ball,a golf club head:club_head,a golf hole cup:hole",
+                    default="golf ball:ball,golf club head:club_head,golf hole:hole",
                     help="comma list of 'text prompt:class_name'; ORDER = YOLO class id (keep "
-                         "ball,club_head,hole). The KEY lever is --conf (0.5+), NOT the wording: bare "
-                         "'golf ball' over-fires only at low conf. Avoid color/surface words ('white'/"
-                         "'grass') — they can miss colored balls / off-grass lies.")
+                         "ball,club_head,hole). SAM 3 wants a SHORT NOUN PHRASE (Meta examples: 'ear','laptop')"
+                         " — no article, no descriptive sentence. FP lever = --conf (0.5+); low conf over-fires.")
     ap.add_argument("--conf", type=float, default=0.4, help="keep detections above this (SAM3 scores "
                     "are 0-1; 0.4-0.5 works well)")
     ap.add_argument("--imgsz", type=int, default=1024, help="inference size (higher helps the small ball)")
