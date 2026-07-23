@@ -59,21 +59,22 @@ def allocate(sizes, total):
     return base
 
 
-def pack(names, videos_of, slots, vtargets):
-    """Fill EXACT people-count `slots` per eval split. Iterate people in the caller's (shuffled) order
-    — NOT largest-first, which would stuff the small eval sets with the biggest people and blow past
-    the video target — and among open slots send each to the split most behind its VIDEO target, so
-    val vs test stay balanced. Eval video-share then tracks the people-share you asked for."""
-    got = {s: 0 for s in list(slots) + ["train"]}
-    left = dict(slots)
+def pack(names, videos_of, vtgt, caps):
+    """Largest people first to whichever eval split is furthest below its VIDEO target -> a tight
+    70/15/15 by video count (chunky whole-people can't hit it exactly, but this is closest and never
+    over-holds-out). `caps` optionally hard-limits people per split (None = uncapped, video target
+    decides). Everyone else -> train. Use explicit pins to hand-pick eval identities."""
+    got = {"val": 0, "test": 0}
+    used = {"val": 0, "test": 0}
     out = {}
-    for name in names:
-        opts = [s for s in slots if left[s] > 0] or ["train"]
-        s = max(opts, key=lambda k: vtargets.get(k, 0) - got[k])
-        out[name] = s
-        got[s] += videos_of[name]
-        if s in left:
-            left[s] -= 1
+    for name in sorted(names, key=lambda n: -videos_of[n]):       # largest first = tight video balance
+        opts = [s for s in ("val", "test")
+                if got[s] < vtgt[s] and (caps.get(s) is None or used[s] < caps[s])]
+        if opts:
+            s = max(opts, key=lambda k: vtgt[k] - got[k])
+            out[name] = s; got[s] += videos_of[name]; used[s] += 1
+        else:
+            out[name] = "train"
     return out
 
 
@@ -87,6 +88,8 @@ def main():
                     "raise for more identity diversity in the final benchmark")
     ap.add_argument("--pin-val", default="", help="comma names forced into val")
     ap.add_argument("--pin-test", default="", help="comma names forced into test")
+    ap.add_argument("--pin-train", default="", help="comma names forced into train (e.g. mixed-identity "
+                    "folders like 'Friend Capture' that shouldn't be a clean eval unit)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default="golf_split_manifest.csv")
     args = ap.parse_args()
@@ -97,21 +100,17 @@ def main():
         raise SystemExit(f"no people with .mp4 found under {root}")
     videos_of = {n: r["videos"] for n, r in people.items()}
     pin = {}
-    for n in (x.strip() for x in args.pin_val.split(",") if x.strip()):
-        pin[n] = "val"
-    for n in (x.strip() for x in args.pin_test.split(",") if x.strip()):
-        pin[n] = "test"
+    for names_s, split in ((args.pin_val, "val"), (args.pin_test, "test"), (args.pin_train, "train")):
+        for n in (x.strip() for x in names_s.split(",") if x.strip()):
+            pin[n] = split
     for n in pin:
         if n not in people:
             print(f"  WARNING: pinned '{n}' not found — check spelling")
 
     rng = random.Random(args.seed)
     assign = dict(pin)
-    P = len(people)
-    # how many PEOPLE go to each eval split (controls diversity), minus those already pinned there
-    want = {"val": args.val_people or round(args.val_frac * P),
-            "test": args.test_people or round(args.test_frac * P)}
-    need = {s: max(0, want[s] - sum(1 for v in pin.values() if v == s)) for s in want}
+    # optional HARD people caps per eval split (else uncapped — video target decides)
+    caps_total = {"val": args.val_people or None, "test": args.test_people or None}
 
     # stratify by domain membership so Indoor & Outdoor both spread across splits
     groups = {}
@@ -120,14 +119,21 @@ def main():
             continue
         groups.setdefault("+".join(sorted(r["domains"])), []).append(n)
     sizes = {g: len(ns) for g, ns in groups.items()}
-    per_group = {s: allocate(sizes, need[s]) for s in need}   # people-count per (split, group)
+    # spread any people-caps across groups proportionally (subtract pins already placed)
+    cap_group = {}
+    for s in ("val", "test"):
+        if caps_total[s] is None:
+            cap_group[s] = {g: None for g in groups}
+        else:
+            rem = max(0, caps_total[s] - sum(1 for v in pin.values() if v == s))
+            cap_group[s] = allocate(sizes, rem)
 
     for g, names in groups.items():
         rng.shuffle(names)                                    # deterministic tie-break
         gv = sum(videos_of[n] for n in names)
-        slots = {"val": per_group["val"][g], "test": per_group["test"][g]}
-        vtgt = {"test": gv * args.test_frac, "val": gv * args.val_frac}
-        assign.update(pack(names, videos_of, slots, vtgt))
+        vtgt = {"val": gv * args.val_frac, "test": gv * args.test_frac}
+        caps = {"val": cap_group["val"][g], "test": cap_group["test"][g]}
+        assign.update(pack(names, videos_of, vtgt, caps))
 
     # ---- write manifest + summary ----
     rows = []
