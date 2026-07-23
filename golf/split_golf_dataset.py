@@ -48,9 +48,52 @@ def scan(root: Path):
     return people
 
 
+_PROBER = None
+
+
+def _get_prober():
+    """One duration prober (seconds/clip). Prefer cv2; fall back to ffprobe so --by minutes works
+    even if this interpreter lacks opencv (e.g. running conda-base instead of the repo venv)."""
+    global _PROBER
+    if _PROBER:
+        return _PROBER
+    try:
+        import cv2
+
+        def prob(p):
+            cap = cv2.VideoCapture(str(p))
+            fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+            n = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
+            cap.release()
+            return (n / fps) if (fps > 0 and n > 0) else 0.0
+        _PROBER = (prob, "cv2")
+    except ImportError:
+        import shutil
+        import subprocess
+        if not shutil.which("ffprobe"):
+            raise SystemExit(
+                "--by minutes needs cv2 or ffprobe, and this python has neither. Fix either:\n"
+                '  uv pip install --python "$(which python)" opencv-python-headless\n'
+                "  # or install ffmpeg (provides ffprobe)\n"
+                "Tip: your interactive `python` may be conda-base, not the repo venv — check with\n"
+                '  python -c "import sys; print(sys.executable)"   (should be ~/ml-models/.venv/bin/python)')
+
+        def prob(p):
+            try:
+                out = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=nw=1:nk=1", str(p)],
+                    capture_output=True, text=True, timeout=30).stdout.strip()
+                return float(out) if out else 0.0
+            except Exception:
+                return 0.0
+        _PROBER = (prob, "ffprobe")
+    return _PROBER
+
+
 def probe_minutes(paths, cache_path):
-    """Total minutes across `paths` via cv2 header (frames/fps — no decode). Cached by abspath so
-    re-runs are instant. Returns {person-agnostic} total minutes for the given list."""
+    """Total minutes across `paths` from the container header (no decode). Cached by abspath so
+    re-runs are instant."""
     import json
     cache = {}
     if cache_path.is_file():
@@ -60,16 +103,10 @@ def probe_minutes(paths, cache_path):
             cache = {}
     todo = [p for p in paths if str(p) not in cache]
     if todo:
-        import cv2
-        print(f"  probing duration of {len(todo)} new videos (cv2 header; cached after)...", flush=True)
-        for i, p in enumerate(todo):
-            cap = cv2.VideoCapture(str(p))
-            fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
-            n = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
-            cap.release()
-            cache[str(p)] = (n / fps) if (fps > 0 and n > 0) else 0.0
-            if (i + 1) % 200 == 0:
-                print(f"    {i + 1}/{len(todo)}", flush=True)
+        prob, backend = _get_prober()
+        print(f"  probing {len(todo)} videos with {backend} (cached after)...", flush=True)
+        for p in todo:
+            cache[str(p)] = prob(p)
         cache_path.write_text(json.dumps(cache))
     return sum(cache.get(str(p), 0.0) for p in paths) / 60.0
 
