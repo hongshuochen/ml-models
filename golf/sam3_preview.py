@@ -29,11 +29,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video")
     ap.add_argument("out")
-    ap.add_argument("--prompt", default="golf ball",
-                    help="comma list of text prompts (each tracked; e.g. 'golf ball,golf club head')")
+    ap.add_argument("--prompt", default="a small white golf ball on the grass",
+                    help="comma list of text prompts. BE SPECIFIC — bare 'golf ball' over-fires on any "
+                         "round object (device icons, spots); 'a small white golf ball on the grass' is "
+                         "far cleaner. Pair with a higher --conf (0.5+).")
     ap.add_argument("--model", default="sam3.pt", help="gated SAM 3/3.1 checkpoint")
     ap.add_argument("--imgsz", type=int, default=1024, help="raise (e.g. 1280) to help the small ball")
-    ap.add_argument("--conf", type=float, default=0.25)
+    ap.add_argument("--conf", type=float, default=0.5, help="SAM3 scores ARE 0-1; 0.5+ recommended")
     ap.add_argument("--device", default="0")
     args = ap.parse_args()
 
@@ -46,7 +48,7 @@ def main():
         model=args.model, device=args.device, verbose=False))
 
     writer = None
-    frames = hit = 0
+    frames = hit = nboxes = 0
     conf_sum = 0.0
     for r in predictor(source=args.video, text=texts, stream=True):
         img = r.orig_img.copy()
@@ -73,15 +75,17 @@ def main():
         writer.write(img)
         frames += 1
         hit += 1 if n else 0
+        nboxes += n
         if frames % 50 == 0:
-            print(f"  {frames} frames, {hit} with a det", flush=True)
+            print(f"  {frames} frames, {hit} with a det, {nboxes} boxes total", flush=True)
 
     if writer:
         writer.release()
-    dets = int(conf_sum > 0)
     print(f"\n✅ wrote {args.out}  ({frames} frames)")
-    print(f"   frames with >=1 detection: {hit}/{frames} ({hit/max(frames,1):.0%})"
-          + (f" | avg conf {conf_sum/max(hit,1):.2f}" if hit else ""))
+    print(f"   frames with >=1 box: {hit}/{frames} ({hit/max(frames,1):.0%}) | "
+          f"{nboxes} boxes total, {nboxes/max(hit,1):.1f} boxes per detected frame"
+          + (f" | avg box conf {conf_sum/max(nboxes,1):.2f}" if nboxes else ""))
+    print("   >1 box/frame usually = over-firing on round objects; use a more specific --prompt + higher --conf")
     print("   watch the mp4: does the box sit on the ball, and does it hold through the swing/roll?")
 
 
