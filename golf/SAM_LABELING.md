@@ -14,9 +14,14 @@ H100 box (no Claude there). Script: `golf/sam3_label_golf.py` (standalone: ultra
   the specific phrasing (the script defaults are now specific). imgsz 1280 needs a 24GB card (OOMs at
   10GB → 1024); tracking is ~1.3 s/frame so sample frames / pick clips rather than labeling everything.
 
-## GPU note
-SAM 3.1 = **848M params (~1.7 GB FP16 weights)** — trivial on an H100 (80 GB). One H100 runs it with
-room for long clips; use the **2nd GPU for throughput** (split the videos), NOT model-parallel.
+## Which model + GPU (measured on RTX 3080 10GB / 3090 24GB)
+- **`facebook/sam3`** → `sam3.pt` (single .pt, ultralytics 8.4.70 loads it). Runs at **imgsz 1024 on 10GB**.
+- **`facebook/sam3.1`** → `sam3.1_multiplex.pt` (also loads). **Heavier — OOMs at 1024 on 10GB, runs at
+  640**; needs **~24GB for imgsz 1280**. Both find the ball cleanly; use 3.1 (newer) on the 3090 @ 1280.
+- **conf matters more than the exact prompt**: bare `"golf ball"` @ **0.65** OR `"a golf ball"`/`"a small
+  white golf ball on the grass"` @ **0.5** all give 1 clean box on the ball; the words "white"/"grass"
+  are NOT required (verified finding a white ball in a sand bunker) → colored balls / non-grass are fine.
+- On an H100 (80 GB) all of this is trivial; use the **2nd GPU for throughput** (split videos), not model-parallel.
 
 ## 1. Setup (once, needs internet)
 ```bash
