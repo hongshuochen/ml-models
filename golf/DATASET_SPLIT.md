@@ -22,12 +22,16 @@ reproduce it with the command at the bottom. Everything downstream MUST honor th
 
 | split | people | **minutes** | **min share** | videos | video share | Indoor / Outdoor min |
 |---|---|---|---|---|---|---|
-| **train** | 17 | **239.1** | **68%** | 474 | 51% | — |
+| **train** | 17 | **239.1** | **68%** | 474 | 51% | 178.0 / 93.8 * |
 | **val**   | 5  | **54.9**  | **16%** | 216 | 23% | 24.1 / 30.8 |
 | **test**  | 5  | **55.5**  | **16%** | 241 | 26% | 25.0 / 30.5 |
 
 > Note the divergence: by **minutes** it's a clean 68 / 16 / 16, but by **video count** val/test look
 > oversized (23% / 26%) — proof that duration is the right metric here.
+>
+> \* Jonathan is Indoor+Outdoor, so his 32.7 min counts in **both** domain columns → train's
+> Indoor+Outdoor (271.8) exceeds its 239.1 total by his 32.7. val/test have no dual-domain person,
+> so theirs sum exactly. Hole (=Indoor) coverage: train 178 / val 24 / test 25 min.
 
 - **val**  people: Michael, Joy, Hiro, Ramu, Aryan  (Indoor: Hiro, Ramu, Aryan · Outdoor: Michael, Joy)
 - **test** people: Yujin, Alex, Kun, Madhu, AJ      (Indoor: Kun, Madhu, AJ · Outdoor: Yujin, Alex)
