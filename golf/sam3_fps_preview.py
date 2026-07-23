@@ -12,8 +12,11 @@ Run (3090, repo venv):
         <clip>.mp4 out_sam_preview --fps 5 --model ~/sam3_1/sam3.1_multiplex.pt --imgsz 1280
 """
 import argparse
+import os
 import time
 from pathlib import Path
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # cut OOM from fragmentation
 
 import cv2
 from ultralytics.models.sam import SAM3VideoSemanticPredictor
@@ -27,10 +30,14 @@ def main():
     ap.add_argument("out_dir")
     ap.add_argument("--fps", type=float, default=5.0, help="down-sample the input to this fps (the speed lever)")
     ap.add_argument("--model", default="sam3.1_multiplex.pt", help="SAM3/3.1 checkpoint")
-    ap.add_argument("--prompts", default="golf ball:ball,golf club head:club_head,golf hole:hole",
-                    help="comma 'short noun phrase:class'; SAM wants short nouns, no article")
+    ap.add_argument("--prompts", default="golf ball:ball",
+                    help="comma 'short noun phrase:class'; SAM wants short nouns, no article. Each extra "
+                         "concept multiplies tracking memory — 3 concepts @1280 OOMs even on 24GB, so the "
+                         "default is ONE (ball). Add more (…,golf club head:club_head,golf hole:hole) only "
+                         "if it fits, or run one concept per pass.")
     ap.add_argument("--conf", type=float, default=0.5, help="FP lever (0.5+); low conf over-fires")
-    ap.add_argument("--imgsz", type=int, default=1280)
+    ap.add_argument("--imgsz", type=int, default=1024, help="lower this on OOM (1280 needs lots of VRAM "
+                    "with multi-concept tracking; 1024/960/768 are safer)")
     ap.add_argument("--device", default="0")
     args = ap.parse_args()
 
