@@ -43,7 +43,7 @@ def main():
 
     predictor = SAM3VideoSemanticPredictor(overrides=dict(
         conf=args.conf, task="segment", mode="predict", imgsz=args.imgsz,
-        model=args.model, device=args.device, quantize=16, verbose=False))
+        model=args.model, device=args.device, verbose=False))
 
     writer = None
     frames = hit = 0

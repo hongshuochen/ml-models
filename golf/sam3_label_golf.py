@@ -71,7 +71,7 @@ def main():
         vid = "_".join(v.relative_to(root).with_suffix("").parts)      # collision-safe id from the path
         predictor = SAM3VideoSemanticPredictor(overrides=dict(
             conf=args.conf, task="segment", mode="predict", imgsz=args.imgsz,
-            model=args.model, quantize=16, verbose=False))
+            model=args.model, verbose=False))
         kept = 0
         for idx, r in enumerate(predictor(source=str(v), text=texts, stream=True)):
             if idx % args.stride != 0 or r.boxes is None or len(r.boxes) == 0:
