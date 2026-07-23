@@ -7,8 +7,12 @@ H100 box (no Claude there). Script: `golf/sam3_label_golf.py` (standalone: ultra
 ## When SAM helps (vs our golf detector)
 - ✅ **hole / hard classes** — a concept prompt needs no training; great for the new `hole` class.
 - ✅ **propagation** — label a clip end-to-end from one prompt (tracking), not frame-by-frame.
-- ⚠️ **the small fast ball** — a concept model can trail a trained detector on tiny objects. **Verify
-  ball recall on your first clip** before trusting it; if weak, use the hybrid below.
+- ✅ **the small ball — but ONLY with a specific prompt.** Verified on `facebook/sam3` (RTX 3080/3090):
+  bare `"golf ball"` OVER-FIRES on any round object (GPS-watch icons → 5-7 false boxes/frame, scores
+  don't separate). **`"a small white golf ball on the grass"` + conf 0.4-0.5 → finds the real ball
+  tightly, ZERO false positives, and tracks it (caught it 9 frames before the trained detector).** Use
+  the specific phrasing (the script defaults are now specific). imgsz 1280 needs a 24GB card (OOMs at
+  10GB → 1024); tracking is ~1.3 s/frame so sample frames / pick clips rather than labeling everything.
 
 ## GPU note
 SAM 3.1 = **848M params (~1.7 GB FP16 weights)** — trivial on an H100 (80 GB). One H100 runs it with
