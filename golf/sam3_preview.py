@@ -29,10 +29,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("video")
     ap.add_argument("out")
-    ap.add_argument("--prompt", default="a small white golf ball on the grass",
-                    help="comma list of text prompts. BE SPECIFIC — bare 'golf ball' over-fires on any "
-                         "round object (device icons, spots); 'a small white golf ball on the grass' is "
-                         "far cleaner. Pair with a higher --conf (0.5+).")
+    ap.add_argument("--prompt", default="a golf ball",
+                    help="comma list of text prompts. The KEY lever is --conf, not the wording: bare "
+                         "'golf ball' @0.25 over-fires on round objects, but @0.5 it's clean (the article "
+                         "'a' made no measurable difference). Avoid color/surface words like 'white'/'grass' "
+                         "— they can hurt recall on colored balls.")
     ap.add_argument("--model", default="sam3.pt", help="gated SAM 3/3.1 checkpoint")
     ap.add_argument("--imgsz", type=int, default=1024, help="raise (e.g. 1280) to help the small ball")
     ap.add_argument("--conf", type=float, default=0.5, help="SAM3 scores ARE 0-1; 0.5+ recommended")
