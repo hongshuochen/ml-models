@@ -22,18 +22,17 @@ reproduce it with the command at the bottom. Everything downstream MUST honor th
 
 | split | people | **minutes** | **min share** | videos | video share | Indoor / Outdoor min |
 |---|---|---|---|---|---|---|
-| **train** | 17 | **239.1** | **68%** | 474 | 51% | 178.0 / 93.8 * |
+| **train** | 17 | **239.1** | **68%** | 474 | 51% | 156.3 / 82.8 * |
 | **val**   | 5  | **54.9**  | **16%** | 216 | 23% | 24.1 / 30.8 |
 | **test**  | 5  | **55.5**  | **16%** | 241 | 26% | 25.0 / 30.5 |
 
 > Note the divergence: by **minutes** it's a clean 68 / 16 / 16, but by **video count** val/test look
 > oversized (23% / 26%) — proof that duration is the right metric here.
 >
-> \* Jonathan is Indoor+Outdoor (his footage: **11.0 min Indoor + 21.7 min Outdoor** = 32.7), so the
-> 178.0 / 93.8 above count his full 32.7 in **both** columns (train Indoor+Outdoor = 271.8 exceeds the
-> 239.1 total by his 32.7). **Not double-counted, train is Indoor 156.3 / Outdoor 82.8** (156.3 + 82.8
-> = 239.1). val/test have no dual-domain person, so theirs sum exactly.
-> Hole (=Indoor) coverage: train ~156 / val 24 / test 25 min.
+> \* Train Indoor/Outdoor split Jonathan's dual-domain footage into its real parts
+> (**11.0 min Indoor + 21.7 min Outdoor** = 32.7), so every row's Indoor + Outdoor = its total
+> (156.3 + 82.8 = 239.1). val/test have no dual-domain person.
+> Hole (=Indoor) coverage: train 156 / val 24 / test 25 min.
 
 - **val**  people: Michael, Joy, Hiro, Ramu, Aryan  (Indoor: Hiro, Ramu, Aryan · Outdoor: Michael, Joy)
 - **test** people: Yujin, Alex, Kun, Madhu, AJ      (Indoor: Kun, Madhu, AJ · Outdoor: Yujin, Alex)
