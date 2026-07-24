@@ -19,6 +19,7 @@ from pathlib import Path
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # cut OOM from fragmentation
 
 import cv2
+import torch
 from ultralytics.models.sam import SAM3VideoSemanticPredictor
 
 BGR = {"ball": (255, 255, 0), "club_head": (11, 158, 245), "hole": (94, 197, 34)}
@@ -104,6 +105,8 @@ def main():
                                              args.fps, (img.shape[1], img.shape[0]))
             out_writer.write(img)
             gi += 1
+        del pred
+        torch.cuda.empty_cache()
         if gi % 50 < args.fps:  # occasional heartbeat
             print(f"  chunk {ci + 1}/{len(chunks)} done, {gi} frames, {nboxes} boxes", flush=True)
     if out_writer:

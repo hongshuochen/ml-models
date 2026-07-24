@@ -34,6 +34,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import cv2
 
 try:
+    import torch
     from ultralytics.models.sam import SAM3VideoSemanticPredictor
 except ImportError:
     sys.exit("need ultralytics with SAM3 + opencv (run golf/setup_offline_env.sh)")
@@ -49,7 +50,10 @@ def main():
     ap.add_argument("--conf", type=float, default=0.5, help="keep detections above this (0.5+ = fewer FPs)")
     ap.add_argument("--imgsz", type=int, default=1024, help="1024 is the speed/quality sweet spot; higher = slower")
     ap.add_argument("--fps", type=float, default=5.0, help="down-sample each video to this fps before tracking")
-    ap.add_argument("--max-clip-secs", type=float, default=60.0, help="cut clips longer than this into fresh-tracked chunks")
+    ap.add_argument("--max-clip-secs", type=float, default=20.0,
+                    help="cut clips into fresh-tracked chunks of this many source-seconds. Tracking memory "
+                         "GROWS within a chunk (many tracked objects), so long chunks OOM even on 80GB with "
+                         "3 concepts @1024 — keep it short (10-20s). Lower on OOM.")
     ap.add_argument("--no-masks", action="store_true", help="save only boxes (skip the labels_seg/ polygons)")
     ap.add_argument("--min-bytes", type=int, default=500_000)
     ap.add_argument("--shard", default="0/1", help="i/n: process only videos[i::n] — one shard per GPU")
@@ -135,6 +139,8 @@ def main():
                 if seg_lines:
                     (out / "labels_seg" / f"{stem}.txt").write_text("\n".join(seg_lines) + "\n")
                 kept += 1
+            del pred                                   # free the chunk's tracker state + weights
+            torch.cuda.empty_cache()
             Path(cpath).unlink(missing_ok=True)
         print(f"  {v.name} -> {kept} labeled frames ({len(chunks)} chunks)", flush=True)
 
