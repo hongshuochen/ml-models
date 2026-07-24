@@ -1,0 +1,164 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
+<title>Golf Detector — Release Doc</title>
+<style>
+  :root{
+    --ink:#18211c; --soft:#566158; --line:#d7ded9; --line2:#e8ede9;
+    --head:#14603f; --head-ink:#ffffff; --accent:#14603f; --bg:#ffffff; --stripe:#f4f8f5; --card:#f7faf8;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--ink:#e7efe9;--soft:#9db0a5;--line:#2b3832;--line2:#232e28;--head:#1c7a4f;
+      --head-ink:#f2fbf6;--accent:#54cf92;--bg:#0f1613;--stripe:#151d19;--card:#141d18;}
+  }
+  :root[data-theme="light"]{--ink:#18211c;--soft:#566158;--line:#d7ded9;--line2:#e8ede9;--head:#14603f;
+    --head-ink:#fff;--accent:#14603f;--bg:#fff;--stripe:#f4f8f5;--card:#f7faf8;}
+  :root[data-theme="dark"]{--ink:#e7efe9;--soft:#9db0a5;--line:#2b3832;--line2:#232e28;--head:#1c7a4f;
+    --head-ink:#f2fbf6;--accent:#54cf92;--bg:#0f1613;--stripe:#151d19;--card:#141d18;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.62;
+    -webkit-font-smoothing:antialiased;padding:clamp(22px,4vw,48px)}
+  .wrap{max-width:800px;margin:0 auto}
+  h1{font-size:27px;margin:0 0 6px;letter-spacing:-.02em}
+  .lede{color:var(--soft);font-size:15px;margin:0 0 6px}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--soft);margin:0 0 26px}
+  h2{font-size:18px;margin:34px 0 10px;letter-spacing:-.01em;padding-bottom:5px;border-bottom:2px solid var(--line)}
+  h3{font-size:14.5px;margin:20px 0 6px}
+  p{margin:0 0 12px}
+  ul{margin:0 0 12px;padding-left:20px} li{margin:3px 0}
+  code{font-family:var(--mono);font-size:.86em;background:var(--stripe);padding:.06em .35em;border-radius:5px}
+  strong{font-weight:650}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin:12px 0}
+  table{border-collapse:collapse;width:100%;font-size:13px;background:var(--bg)}
+  th,td{padding:8px 13px;border:1px solid var(--line);text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums}
+  thead th{background:var(--head);color:var(--head-ink);font-weight:600}
+  thead th small{display:block;font-weight:400;opacity:.82;font-size:11px;margin-top:1px}
+  th.k,td.k{text-align:left;font-weight:600}
+  td.d{text-align:left;color:var(--soft);white-space:normal;min-width:170px;font-size:12px}
+  td.v{text-align:left;font-family:var(--mono);font-size:11.5px;white-space:normal;word-break:break-word}
+  tbody tr:nth-child(even){background:var(--stripe)}
+  .callout{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;padding:12px 15px;margin:12px 0;font-size:13.5px}
+  .foot{font-size:12px;color:var(--soft);margin:14px 2px 0}
+</style>
+
+<div class="wrap">
+  <h1>Golf Detector — Model Release</h1>
+  <p class="lede">On-device ball / club-head / hole detector for the egocentric golf CV system.</p>
+  <p class="meta">Family: golf_ego · Backbone: YOLO26s · Latest: v5 (2026-07-22) · Baseline: v2 (2026-07-10)</p>
+
+  <h2>1. Overview</h2>
+  <p>The <strong>Golf Detector</strong> is the per-frame object detector behind the egocentric
+    (AR-glasses / head-cam) golf pipeline. It locates the golf <strong>ball</strong>, the
+    <strong>club head</strong>, and the putting <strong>hole</strong> in each camera frame; those boxes
+    feed the on-device hit counter and the live Android counter. It is trained on real first-person golf
+    footage, exported to TFLite, and runs on the phone's Hexagon NPU in real time.</p>
+
+  <h2>2. What it detects</h2>
+  <ul>
+    <li><strong>ball</strong> (class 0) — the golf ball at address and during putt roll.</li>
+    <li><strong>club_head</strong> (class 1) — the head of the club.</li>
+    <li><strong>hole</strong> (class 2) — the cup on the green (added in the 3-class line, v3+).</li>
+  </ul>
+  <p>v2 is a 2-class model (ball, club_head); <strong>v5 is 3-class</strong> (adds hole).</p>
+
+  <h2>3. Architecture</h2>
+  <p><strong>YOLO26s</strong> — CSP backbone → PAN neck → anchor-free detect head, 9.95 M parameters.
+    The offline / training model uses YOLO26's <strong>end-to-end, NMS-free</strong> head (final output
+    <code>(1, 300, 6)</code>). For the phone we re-export the <strong>raw one-to-many head</strong>
+    (three feature maps <code>[1, G, G, 4+nc]</code>) because the end-to-end head's TopK / GatherNd ops
+    can't run on the NPU; threshold + per-class NMS then run in Kotlin.</p>
+
+  <h2>4. Training data</h2>
+  <p>Real egocentric footage, hand-labeled in Label Studio, then expanded through the data pipeline:
+    hand labels → self-pseudo-labeling → add the hole class → human-reviewed + auto-mined frames.</p>
+  <ul>
+    <li><strong>v2</strong> — 1,622 hand-labeled frames + 4,735 pseudo-labeled (self-training).</li>
+    <li><strong>v5</strong> — the 3-class hole base + newly human-reviewed frames. <strong>Auto-mined
+      data was deliberately excluded</strong> — it was found to poison the hole class (the weak teacher
+      swamped the few hand labels).</li>
+  </ul>
+
+  <h2>5. Evaluation</h2>
+  <p>Both versions are measured on the <strong>same fixed validation set</strong> — 290 images / 448
+    boxes of real egocentric footage, split <strong>video-disjoint</strong> (no frame leakage) — so the
+    numbers are directly comparable across versions.</p>
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr><th class="k">KPI</th><th class="k">Definition</th>
+        <th>v2<small>2026-07-10</small></th><th>v5<small>2026-07-22</small></th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">Classes</td><td class="d">Detected object classes</td><td>2 (ball, club)</td><td>3 (+hole)</td></tr>
+      <tr><td class="k">Training data</td><td class="d">What it was trained on</td><td>+pseudo 4,735</td><td>+reviewed (no mined)</td></tr>
+      <tr><td class="k">mAP50 (all)</td><td class="d">Mean AP @ IoU 0.5 over classes</td><td>0.881</td><td>0.879</td></tr>
+      <tr><td class="k">mAP50-95 (all)</td><td class="d">Mean AP @ IoU 0.5:0.95</td><td>0.623</td><td>0.626</td></tr>
+      <tr><td class="k">Precision (all)</td><td class="d">TP / (TP + FP)</td><td>0.933</td><td>0.928</td></tr>
+      <tr><td class="k">Recall (all)</td><td class="d">TP / (TP + FN)</td><td>0.824</td><td>0.811</td></tr>
+      <tr><td class="k">ball mAP50</td><td class="d">Ball AP @ 0.5</td><td>0.858</td><td>0.861</td></tr>
+      <tr><td class="k">ball Precision</td><td class="d">Ball precision</td><td>0.909</td><td>0.893</td></tr>
+      <tr><td class="k">ball Recall</td><td class="d">Ball recall</td><td>0.787</td><td>0.797</td></tr>
+      <tr><td class="k">club_head mAP50</td><td class="d">Club-head AP @ 0.5</td><td>0.903</td><td>0.895</td></tr>
+      <tr><td class="k">club_head Precision</td><td class="d">Club-head precision</td><td>0.957</td><td>0.964</td></tr>
+      <tr><td class="k">club_head Recall</td><td class="d">Club-head recall</td><td>0.860</td><td>0.827</td></tr>
+      <tr><td class="k">hole Recall</td><td class="d">Hole recall</td><td>—</td><td>n/a ‡</td></tr>
+      <tr><td class="k">fps (on-device)</td><td class="d">Frames/sec, S25 Hexagon NPU @640</td><td>~55 fps</td><td>~90 fps</td></tr>
+      <tr><td class="k">Latency (on-device)</td><td class="d">ms/frame, S25 NPU @640</td><td>~18 ms</td><td>~11 ms</td></tr>
+      <tr><td class="k">Deploy precision</td><td class="d">Weight precision of the shipped model</td><td>float16</td><td>float16</td></tr>
+      <tr><td class="k">Model size (TFLite)</td><td class="d">Shipped .tflite file size</td><td>18.9 MB</td><td>19.0 MB</td></tr>
+      <tr><td class="k">Params</td><td class="d">Model parameters (YOLO26s)</td><td>9.95M</td><td>9.95M</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="foot">‡ The fixed val has no <code>hole</code> labels, so hole recall is not measurable here — a held-out hole val is still needed.</p>
+
+  <h2>6. Deployment</h2>
+  <p>Shipped as a <strong>float16 raw-head TFLite</strong> model in the <code>android-golf</code> app,
+    running on the <strong>Qualcomm Hexagon NPU</strong> (QNN delegate). On a Samsung Galaxy S25 the
+    3-class v5 runs at <strong>~11 ms / frame (~90 fps) @ 640</strong>; first-launch graph compile is
+    ~1.4 s. The app auto-loads the highest <code>golf_v&lt;N&gt;.tflite</code> in assets and shows the
+    version in the HUD.</p>
+
+  <h2>7. Version history</h2>
+  <ul>
+    <li><strong>v2 — 2026-07-10</strong> · 2-class baseline (ball, club_head); first deployed model.
+      Hand + pseudo-labeled training; precision-focused.</li>
+    <li><strong>v3 / v4</strong> (superseded) · v3 first added the <strong>hole</strong> class; v4 mixed
+      in auto-mined frames, which <strong>degraded hole</strong> → that path was dropped.</li>
+    <li><strong>v5 — 2026-07-22</strong> · 3-class (ball, club_head, hole). Fine-tuned from the v3 hole
+      model on human-reviewed frames, <strong>auto-mined data excluded</strong>. No regression vs
+      baseline: ball recall +0.01, mAP steady; hole added but not yet measurable on the current val.</li>
+  </ul>
+
+  <h2>8. Known limitations</h2>
+  <ul>
+    <li><strong>Ball recall (~0.80)</strong> is the standing weakness — the small white/colored ball at
+      distance is the hardest target.</li>
+    <li><strong>Hole recall is unmeasured</strong> — the fixed val predates the hole class and has no
+      hole labels. A held-out, hand-labeled hole val is required to track it.</li>
+    <li><strong>Ball in flight is un-trackable</strong> (motion blur); impact timing is anchored on
+      audio, not vision.</li>
+  </ul>
+
+  <h2>9. Model Details</h2>
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr><th class="k">Detail</th><th>v2<small>2026-07-10</small></th><th>v5<small>2026-07-22</small></th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">Run name</td><td class="v">golf_ego_v2_1280</td><td class="v">golf_ego_v5_nomined</td></tr>
+      <tr><td class="k">Architecture</td><td class="v">YOLO26s — CSP → PAN → anchor-free head</td><td class="v">YOLO26s (same)</td></tr>
+      <tr><td class="k">Checkpoint (.pt)</td><td class="v">runs/detect/golf_ego_v2_1280/weights/best.pt</td><td class="v">runs/detect/golf_ego_v5_nomined/weights/best.pt</td></tr>
+      <tr><td class="k">Checkpoint size</td><td class="v">19.4 MB (fp16)</td><td class="v">20.4 MB (fp16)</td></tr>
+      <tr><td class="k">Deployed TFLite</td><td class="v">android-golf/app/src/main/assets/golf.tflite</td><td class="v">android-golf/app/src/main/assets/golf_v5.tflite</td></tr>
+      <tr><td class="k">On-device head</td><td class="v">End-to-end NMS-free — output (1,300,6)</td><td class="v">Raw one-to-many — 3 maps [1,G,G,7]</td></tr>
+      <tr><td class="k">Input size</td><td class="v">640×640 (device) / 1280 (offline)</td><td class="v">640×640 (device) / 1280 (offline)</td></tr>
+      <tr><td class="k">Export recipe</td><td class="v">yolo export format=tflite half=True imgsz=640</td><td class="v">golf/export_golf_rawhead_tflite.py</td></tr>
+      <tr><td class="k">Repro command</td><td class="v">see TRAINING.md</td><td class="v">golf/build_and_train_golf.py (see OFFLINE_PIPELINE.md)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+</body></html>
