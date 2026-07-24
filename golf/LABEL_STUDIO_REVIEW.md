@@ -8,8 +8,8 @@ Paths here: data `~/ml-models/data/golf` · detector `~/golf_offline/runs/detect
 
 ## 1. Pre-label every frame with the detector (v5) @ 5 fps  (~1–2 h compute)
 ```bash
-cd ~/ml-models && git pull && source .venv/bin/activate     # use the repo venv's python, NOT 'uv run'
-python golf/detector_prelabel.py ~/ml-models/data/golf out_prelabel \
+ cd ~/ml-models && git pull
+~/ml-models/.venv/bin/python golf/detector_prelabel.py ~/ml-models/data/golf out_prelabel \
     --model ~/golf_offline/runs/detect/golf_ego_v5_nomined/weights/best.pt \
     --fps 5 --imgsz 1280
 # -> out_prelabel/images/*.jpg + out_prelabel/labels/*.txt (YOLO box) + classes.txt
@@ -19,7 +19,7 @@ python golf/detector_prelabel.py ~/ml-models/data/golf out_prelabel \
 
 ## 2. Person → split manifest (same pins as the frozen split)
 ```bash
-python golf/split_golf_dataset.py ~/ml-models/data/golf --by minutes \
+~/ml-models/.venv/bin/python golf/split_golf_dataset.py ~/ml-models/data/golf --by minutes \
     --val-frac 0 --test-frac 0 \
     --pin-val  "Michael,Joy,Hiro,Ramu,Aryan" \
     --pin-test "Yujin,Alex,Kun,Madhu,AJ" \
@@ -28,7 +28,7 @@ python golf/split_golf_dataset.py ~/ml-models/data/golf --by minutes \
 
 ## 3. Split into 3 project task files
 ```bash
-python golf/make_ls_projects.py out_prelabel --manifest golf_split_manifest.csv
+~/ml-models/.venv/bin/python golf/make_ls_projects.py out_prelabel --manifest golf_split_manifest.csv
 # -> out_prelabel/ls_train.json, ls_val.json, ls_test.json, ls_config.xml
 ```
 
