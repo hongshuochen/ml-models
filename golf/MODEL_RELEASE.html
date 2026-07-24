@@ -93,6 +93,16 @@
   </div>
   <p class="note">‡ The fixed val has no <code>hole</code> labels, so hole recall is not measurable — a held-out hole val is still needed.</p>
 
+  <h3>Where the evaluation data comes from</h3>
+  <p>The fixed val is carved from <strong>v1 data</strong> (the Google-Photos batch). The egocentric
+    clips were first-person filtered, then hand-labeled in Label Studio (~1,900 frames by 2 annotators),
+    and split <strong>video-disjoint</strong> — no clip appears in both train and val — into the training
+    set and a held-out <strong>290-image / 448-box</strong> val. That same val is reused for every
+    version, so the KPIs above are directly comparable across v2 → v5.</p>
+  <p>Because v1 data predates the hole class, this val is <strong>ball + club only (no hole labels)</strong>
+    — which is why <code>hole</code> recall can't be scored here. A dedicated hole val is being carved from
+    <strong>v2 data</strong> (its val/test people, all with putting footage) to close that gap.</p>
+
   <h2>2. Overview</h2>
   <p>The <strong>Golf Detector</strong> is the per-frame object detector behind the egocentric
     (AR-glasses / head-cam) golf pipeline. It locates the golf <strong>ball</strong>, the
