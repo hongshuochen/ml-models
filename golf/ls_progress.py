@@ -61,6 +61,7 @@ def main():
     ap.add_argument("--token", required=True, help="your LS API token (Account & Settings -> Access Token)")
     ap.add_argument("--project", type=int, nargs="+", help="project id(s); omit to just list projects")
     ap.add_argument("--page-size", type=int, default=1000)
+    ap.add_argument("--debug", action="store_true", help="dump raw JSON of the project + first task, then exit")
     args = ap.parse_args()
 
     # what projects exist? (validates auth + shows the real ids)
@@ -77,6 +78,26 @@ def main():
             print(f"⚠ project {pid} not found. available: "
                   + ", ".join(f"{i}={t}" for i, t in available.items()))
             return
+
+    if args.debug:
+        import json
+        pid = args.project[0]
+        proj = get(args.url, args.token, f"/api/projects/{pid}/")
+        print(f"project {pid}: task_number={proj.get('task_number')} "
+              f"num_tasks_with_annotations={proj.get('num_tasks_with_annotations')} "
+              f"total_annotations_number={proj.get('total_annotations_number')}")
+        data = get(args.url, args.token, "/api/tasks/", project=pid, page=1, page_size=3)
+        tasks = data.get("tasks", data) if isinstance(data, dict) else data
+        if isinstance(data, dict):
+            print("list response keys:", list(data.keys()))
+        print(f"got {len(tasks)} tasks; first task keys: {list(tasks[0].keys()) if tasks else '—'}")
+        if tasks:
+            t = tasks[0]
+            print("  annotations field:", json.dumps(t.get("annotations"))[:400])
+            print("  annotators field :", t.get("annotators"))
+            print("  total_annotations:", t.get("total_annotations"), " cancelled:", t.get("cancelled_annotations"))
+            print("  completed_at     :", t.get("completed_at"))
+        return
 
     # user id -> name
     users = {}
