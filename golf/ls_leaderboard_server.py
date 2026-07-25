@@ -96,9 +96,6 @@ def build_stats():
     return users, by_user, projects, g_done, g_total
 
 
-MEDAL = {1: "\U0001F947", 2: "\U0001F948", 3: "\U0001F949"}
-
-
 def render(users, by_user, projects, g_done, g_total):
     pct = 100 * g_done / g_total if g_total else 0
     rows = ""
@@ -107,9 +104,7 @@ def render(users, by_user, projects, g_done, g_total):
     for rank, (uid, c) in enumerate(top, 1):
         name = html.escape(users.get(uid, f"user{uid}"))
         w = 100 * c / mx if mx else 0
-        medal = MEDAL.get(rank, f"{rank}")
-        cls = " top" if rank <= 3 else ""
-        rows += (f'<tr class="r{cls}"><td class="rk">{medal}</td><td class="nm">{name}</td>'
+        rows += (f'<tr><td class="rk">{rank}</td><td class="nm">{name}</td>'
                  f'<td class="ct">{c:,}</td><td class="bar"><span style="width:{w:.1f}%"></span></td></tr>')
     proj_rows = "".join(
         f'<div class="pj"><b>{html.escape(t)}</b> — {d:,}/{n:,} '
@@ -117,7 +112,7 @@ def render(users, by_user, projects, g_done, g_total):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="refresh" content="{ARGS.refresh}">
-<title>Golf Labeling Leaderboard</title>
+<title>Golf Labeling Summary</title>
 <style>
  :root{{--g:#14603f;--g2:#1c7a4f;--ink:#12201a;--soft:#5a6b61;--bg:#f3f8f5;--card:#fff;--line:#dbe4de}}
  *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--ink);
@@ -132,14 +127,14 @@ def render(users, by_user, projects, g_done, g_total):
  table{{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
   border-radius:14px;overflow:hidden}}
  td{{padding:11px 14px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}}
- tr:last-child td{{border-bottom:0}} tr.top{{background:#f0f8f3}}
- .rk{{width:44px;text-align:center;font-size:19px;font-weight:700;color:var(--soft)}}
+ tr:last-child td{{border-bottom:0}}
+ .rk{{width:44px;text-align:center;font-size:15px;font-weight:600;color:var(--soft)}}
  .nm{{font-weight:600}} .ct{{width:90px;text-align:right;font-weight:800;color:var(--g2);font-size:17px}}
  .bar{{width:38%}} .bar>span{{display:block;height:9px;border-radius:99px;
   background:linear-gradient(90deg,var(--g),var(--g2))}}
  .foot{{color:var(--soft);font-size:12px;margin-top:14px;text-align:center}}
 </style></head><body><div class="wrap">
- <h1>⛳ Golf Labeling Leaderboard</h1>
+ <h1>⛳ Golf Labeling Summary</h1>
  <p class="sub">Live — auto-refreshes every {ARGS.refresh}s</p>
  <div class="prog"><div class="big">{g_done:,} <span style="font-size:16px;color:var(--soft);font-weight:500">/ {g_total:,} labeled ({pct:.1f}%)</span></div>
   <div class="track"><span></span></div>
