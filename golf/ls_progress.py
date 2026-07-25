@@ -30,7 +30,7 @@ def _refresh_access(url, token):
 
 def get(url, token, path, **params):
     def _try(hdr):
-        return requests.get(url.rstrip("/") + path, headers=hdr, params=params, timeout=60)
+        return requests.get(url.rstrip("/") + path, headers=hdr, params=params, timeout=300)
 
     if AUTH["scheme"] == "Token":
         r = _try({"Authorization": f"Token {token}"})
@@ -115,24 +115,16 @@ def main():
         total = proj.get("task_number", 0)
         done = proj.get("num_tasks_with_annotations", 0)
         grand_total += total; grand_done += done
-        # paginate tasks, count annotations by completed_by
-        page = 1
+        # /api/tasks/ list doesn't embed annotations -> use the export (only annotated tasks, full anns)
+        tasks = get(args.url, args.token, f"/api/projects/{pid}/export", exportType="JSON")
         pcount = Counter()
-        while True:
-            data = get(args.url, args.token, "/api/tasks/", project=pid, page=page, page_size=args.page_size)
-            tasks = data.get("tasks", data) if isinstance(data, dict) else data
-            if not tasks:
-                break
-            for t in tasks:
-                for a in (t.get("annotations") or []):
-                    if a.get("was_cancelled"):
-                        continue
-                    uid = a.get("completed_by")
-                    uid = uid.get("id") if isinstance(uid, dict) else uid
-                    pcount[uid] += 1
-            if len(tasks) < args.page_size:
-                break
-            page += 1
+        for t in (tasks or []):
+            for a in (t.get("annotations") or []):
+                if a.get("was_cancelled"):
+                    continue
+                uid = a.get("completed_by")
+                uid = uid.get("id") if isinstance(uid, dict) else uid
+                pcount[uid] += 1
         by_user.update(pcount)
         pct = 100 * done / total if total else 0
         print(f"\n=== project {pid}: {proj.get('title','')} — {done:,}/{total:,} tasks done ({pct:.1f}%) ===")

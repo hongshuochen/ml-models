@@ -39,7 +39,7 @@ def _refresh_access():
 
 
 def _try(path, params, header):
-    return requests.get(ARGS.url.rstrip("/") + path, headers=header, params=params, timeout=90)
+    return requests.get(ARGS.url.rstrip("/") + path, headers=header, params=params, timeout=300)
 
 
 def get(path, **params):
@@ -85,22 +85,14 @@ def build_stats():
         total, done = proj.get("task_number", 0), proj.get("num_tasks_with_annotations", 0)
         g_total += total; g_done += done
         projects.append((pid, proj.get("title", f"project {pid}"), done, total))
-        page = 1
-        while True:
-            data = get("/api/tasks/", project=pid, page=page, page_size=1000)
-            tasks = data.get("tasks", data) if isinstance(data, dict) else data
-            if not tasks:
-                break
-            for t in tasks:
-                for a in (t.get("annotations") or []):
-                    if a.get("was_cancelled"):
-                        continue
-                    uid = a.get("completed_by")
-                    uid = uid.get("id") if isinstance(uid, dict) else uid
-                    by_user[uid] += 1
-            if len(tasks) < 1000:
-                break
-            page += 1
+        # /api/tasks/ list doesn't embed annotations -> export gives only annotated tasks with full anns
+        for t in (get(f"/api/projects/{pid}/export", exportType="JSON") or []):
+            for a in (t.get("annotations") or []):
+                if a.get("was_cancelled"):
+                    continue
+                uid = a.get("completed_by")
+                uid = uid.get("id") if isinstance(uid, dict) else uid
+                by_user[uid] += 1
     return users, by_user, projects, g_done, g_total
 
 
