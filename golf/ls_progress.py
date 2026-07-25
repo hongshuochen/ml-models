@@ -16,11 +16,24 @@ from collections import Counter
 import requests
 
 
+# legacy "Access Token" -> `Token <t>`; newer JWT "Personal Access Token" -> `Bearer <t>`. Try both.
+_SCHEME = []
+
+
 def get(url, token, path, **params):
-    r = requests.get(url.rstrip("/") + path, headers={"Authorization": f"Token {token}"},
-                     params=params, timeout=60)
-    r.raise_for_status()
-    return r.json()
+    schemes = _SCHEME or ["Token", "Bearer"]
+    last = None
+    for sch in schemes:
+        r = requests.get(url.rstrip("/") + path,
+                         headers={"Authorization": f"{sch} {token}"}, params=params, timeout=60)
+        if r.status_code == 401:
+            last = r
+            continue
+        if not _SCHEME:
+            _SCHEME.append(sch)
+        r.raise_for_status()
+        return r.json()
+    last.raise_for_status()
 
 
 def main():

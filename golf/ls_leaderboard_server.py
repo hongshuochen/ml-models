@@ -22,11 +22,24 @@ STATE = {"html": "<h1>starting…</h1>", "ts": 0}
 ARGS = None
 
 
+# LS legacy "Access Token" wants `Token <t>`; the newer JWT "Personal Access Token" wants `Bearer <t>`.
+# Auto-detect once, then stick with whichever authenticates.
+AUTH = {"scheme": None}
+
+
 def get(path, **params):
-    r = requests.get(ARGS.url.rstrip("/") + path, headers={"Authorization": f"Token {ARGS.token}"},
-                     params=params, timeout=90)
-    r.raise_for_status()
-    return r.json()
+    schemes = [AUTH["scheme"]] if AUTH["scheme"] else ["Token", "Bearer"]
+    last = None
+    for sch in schemes:
+        r = requests.get(ARGS.url.rstrip("/") + path,
+                         headers={"Authorization": f"{sch} {ARGS.token}"}, params=params, timeout=90)
+        if r.status_code == 401:
+            last = r
+            continue
+        AUTH["scheme"] = sch
+        r.raise_for_status()
+        return r.json()
+    last.raise_for_status()
 
 
 def build_stats():
