@@ -59,6 +59,18 @@ For **each** project:
 - **Class consistency rule** (decide once, apply everywhere): does `club_head` include clubs sitting
   in the bag, or only the active/in-hand club? Keep it uniform.
 
+## 6b. Live progress website (everyone can watch)
+A shared leaderboard page so the whole team sees who's labeled how much + overall %. Runs on this
+box, polls the LS API in the background, serves an auto-refreshing HTML page. No token on the
+viewers' side — the server holds it.
+```bash
+# get an API token in LS: avatar -> Account & Settings -> Access Token
+~/ml-models/.venv/bin/python golf/ls_leaderboard_server.py \
+    --url http://105.145.25.32:8080 --token <TOKEN> --project 1 --port 8090 --refresh 120
+# team opens:  http://105.145.25.32:8090/       (add --project 1 2 3 once val/test exist)
+```
+Leave it running (e.g. `nohup … &` or a second terminal). CLI-only variant: `golf/ls_progress.py`.
+
 ## 7. Export → training
 Each project → **Export → YOLO** → a dir with `images/` + `labels/`.
 - **val / test** exports = the held-out eval sets (finally a real `hole` recall).
