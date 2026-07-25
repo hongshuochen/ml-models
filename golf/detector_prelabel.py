@@ -43,6 +43,10 @@ def main():
     ap.add_argument("--min-bytes", type=int, default=500_000)
     ap.add_argument("--shard", default="0/1", help="i/n: process only videos[i::n]")
     ap.add_argument("--device", default="0")
+    ap.add_argument("--skip-existing", default="",
+                    help="comma-sep dirs of frames already produced (e.g. an earlier 1fps run's images/ or "
+                         "its out dir). Frames whose <stem>.jpg already exists there are skipped entirely "
+                         "(no re-detect) -> a higher-fps/motion-aware re-run emits ONLY the new frames to add.")
     args = ap.parse_args()
 
     root = Path(args.videos_dir).expanduser()
@@ -50,6 +54,18 @@ def main():
     (out / "images").mkdir(parents=True, exist_ok=True)
     (out / "labels").mkdir(parents=True, exist_ok=True)
     i, n = (int(x) for x in args.shard.split("/"))
+
+    # stems already labeled in a prior run -> skip so we only emit the delta (dedup by deterministic name)
+    seen = set()
+    skip_dirs = [Path(out / "images")]  # own output: makes a resumed/repeated run idempotent
+    for d in (p.strip() for p in args.skip_existing.split(",") if p.strip()):
+        dp = Path(d).expanduser()
+        skip_dirs += [dp, dp / "images"]  # accept either an images/ dir or its parent out dir
+    for d in skip_dirs:
+        if d.is_dir():
+            seen.update(p.stem for p in d.glob("*.jpg"))
+    if seen:
+        print(f"skip-existing: {len(seen):,} frames already produced -> will emit only new ones", flush=True)
 
     model = YOLO(args.model)
     names = model.names
@@ -70,7 +86,7 @@ def main():
             ok, f = cap.read()
             if not ok:
                 break
-            if idx % step == 0:
+            if idx % step == 0 and f"{vid}_f{idx:06d}" not in seen:
                 r = model.predict(f, imgsz=args.imgsz, conf=args.conf, device=args.device, verbose=False)[0]
                 H, W = f.shape[:2]
                 lines = []
