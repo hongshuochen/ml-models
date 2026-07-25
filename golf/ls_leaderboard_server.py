@@ -73,9 +73,14 @@ def build_stats():
     for u in get("/api/users/"):
         nm = (f"{u.get('first_name','')} {u.get('last_name','')}").strip() or u.get("email") or f"user{u['id']}"
         users[u["id"]] = nm
+    pl = get("/api/projects/")
+    available = {p["id"] for p in (pl.get("results", pl) if isinstance(pl, dict) else pl)}
     by_user, projects = Counter(), []
     g_done = g_total = 0
     for pid in ARGS.project:
+        if pid not in available:
+            projects.append((pid, f"project {pid} — NOT FOUND (ids: {sorted(available)})", 0, 0))
+            continue
         proj = get(f"/api/projects/{pid}/")
         total, done = proj.get("task_number", 0), proj.get("num_tasks_with_annotations", 0)
         g_total += total; g_done += done

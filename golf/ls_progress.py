@@ -59,9 +59,24 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--url", required=True, help="Label Studio base URL, e.g. http://105.145.25.32:8080")
     ap.add_argument("--token", required=True, help="your LS API token (Account & Settings -> Access Token)")
-    ap.add_argument("--project", type=int, nargs="+", required=True, help="project id(s)")
+    ap.add_argument("--project", type=int, nargs="+", help="project id(s); omit to just list projects")
     ap.add_argument("--page-size", type=int, default=1000)
     args = ap.parse_args()
+
+    # what projects exist? (validates auth + shows the real ids)
+    pl = get(args.url, args.token, "/api/projects/")
+    plist = pl.get("results", pl) if isinstance(pl, dict) else pl
+    available = {p["id"]: p.get("title", "") for p in plist}
+    if not args.project:
+        print("projects on this server (use the id with --project):")
+        for pid, title in available.items():
+            print(f"  {pid:>4}  {title}")
+        return
+    for pid in args.project:
+        if pid not in available:
+            print(f"⚠ project {pid} not found. available: "
+                  + ", ".join(f"{i}={t}" for i, t in available.items()))
+            return
 
     # user id -> name
     users = {}
