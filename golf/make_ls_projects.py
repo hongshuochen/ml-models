@@ -55,7 +55,24 @@ def main():
     ap.add_argument("--ls-prefix", default="/data/local-files/?d=images/",
                     help="LS local-files URL prefix (DOCUMENT_ROOT must be the sam_dir)")
     ap.add_argument("--default-split", default="train", help="split for people missing from the manifest")
+    ap.add_argument("--val-test-stride", type=int, default=1,
+                    help="subsample val/test to every Nth frame PER VIDEO (train unaffected). The frames were "
+                         "pre-labeled at 5fps, so 5 -> ~1fps. Lets you label a light val/test now and add the "
+                         "rest later (no re-label, no dup).")
+    ap.add_argument("--val-test-keep", default="0",
+                    help="with --val-test-stride N, which phase(s) 0..N-1 to KEEP now (comma-sep). Start '0'; "
+                         "to ADD the rest later re-run with e.g. '1,2,3,4' -> disjoint frames, import as new tasks.")
     args = ap.parse_args()
+
+    stride = max(1, args.val_test_stride)
+    keep_phases = {int(x) for x in args.val_test_keep.split(",") if x.strip() != ""}
+
+    def vid_key(s):   # frame name is <...>_f######; group by everything before _f (one video)
+        return s.rsplit("_f", 1)[0]
+
+    def frame_idx(s):
+        tail = s.rsplit("_f", 1)
+        return int(tail[1]) if len(tail) == 2 and tail[1].isdigit() else 0
 
     D = Path(args.sam_dir)
     names = (D / "classes.txt").read_text().split() if (D / "classes.txt").is_file() else ["ball", "club_head", "hole"]
@@ -67,9 +84,9 @@ def main():
             split_of[row["person"].strip()] = row["split"].strip()
     print(f"manifest: {len(split_of)} people -> splits {Counter(split_of.values())}")
 
-    tasks = {"train": [], "val": [], "test": []}
     miss = Counter()
     imgs = sorted(glob.glob(str(D / "images" / "*.jpg")))
+    recs = []  # (path, stem, split)
     for p in imgs:
         stem = Path(p).stem
         fields = stem.split("_")
@@ -77,15 +94,39 @@ def main():
         split = split_of.get(person, args.default_split)
         if person not in split_of:
             miss[person] += 1
+        recs.append((p, stem, split))
+
+    # subsample val/test to every Nth frame per video (train keeps all); rest is deferred for a later add
+    drop = set()
+    deferred = Counter()
+    if stride > 1:
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for i, (p, stem, split) in enumerate(recs):
+            if split in ("val", "test"):
+                groups[(split, vid_key(stem))].append((frame_idx(stem), i))
+        for (split, _), lst in groups.items():
+            lst.sort()
+            for rank, (_, i) in enumerate(lst):
+                if (rank % stride) not in keep_phases:
+                    drop.add(i); deferred[split] += 1
+
+    tasks = {"train": [], "val": [], "test": []}
+    for i, (p, stem, split) in enumerate(recs):
+        if i in drop:
+            continue
         with Image.open(p) as im:
             W, H = im.size
         lp = D / "labels" / f"{stem}.txt"
         results = yolo_to_results(lp.read_text(), W, H, names) if lp.is_file() else []
         tasks[split].append({
             "data": {"image": f"{args.ls_prefix}{Path(p).name}"},
-            "predictions": [{"model_version": "sam3.1", "result": results}],
+            "predictions": [{"model_version": "detector", "result": results}],
         })
 
+    if stride > 1:
+        print(f"val/test stride {stride}, keeping phase(s) {sorted(keep_phases)} (~1fps of the 5fps frames); "
+              f"deferred for a later add: {dict(deferred)}")
     for split, t in tasks.items():
         outp = D / f"ls_{split}.json"
         outp.write_text(json.dumps(t, indent=1))

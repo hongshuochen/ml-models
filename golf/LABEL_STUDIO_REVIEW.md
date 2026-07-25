@@ -32,6 +32,23 @@ Paths here: data `~/ml-models/data/golf` · detector `~/golf_offline/runs/detect
 # -> out_prelabel/ls_train.json, ls_val.json, ls_test.json, ls_config.xml
 ```
 
+### val/test at 1fps now, add the rest later
+The frames were pre-labeled at 5fps. To start val/test lighter (≈1fps) and grow later WITHOUT
+re-labeling or duplicating — deterministic frame names make the subsets disjoint:
+```bash
+# NOW: label ~1fps val/test (every 5th frame per video). train stays full 5fps.
+~/ml-models/.venv/bin/python golf/make_ls_projects.py out_prelabel --manifest golf_split_manifest.csv \
+    --val-test-stride 5 --val-test-keep 0
+#   -> import ls_val.json / ls_test.json (the ~1fps subset)
+
+# LATER: add the remaining 4/5 (disjoint) -> Import into the SAME val/test projects (appends tasks)
+~/ml-models/.venv/bin/python golf/make_ls_projects.py out_prelabel --manifest golf_split_manifest.csv \
+    --val-test-stride 5 --val-test-keep 1,2,3,4
+```
+> Note 1fps under-samples the fast swing (impact/blur land between samples). Fine for a first pass;
+> when you add more, prefer the swing frames — `--val-test-keep 1,2,3,4` brings back the full 5fps, or
+> use a motion-aware sampler to add only swing segments. Train is unaffected (always full).
+
 ## 4. Start Label Studio with local-file serving pointed at out_prelabel
 Isolated install (its Django deps clash with torch): `uv tool install label-studio`. DOCUMENT_ROOT
 must be the **out_prelabel dir itself** (images live in its `images/` subdir). Put the env inline:
