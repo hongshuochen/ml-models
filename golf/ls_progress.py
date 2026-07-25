@@ -16,24 +16,43 @@ from collections import Counter
 import requests
 
 
-# legacy "Access Token" -> `Token <t>`; newer JWT "Personal Access Token" -> `Bearer <t>`. Try both.
-_SCHEME = []
+# Three LS token flavors: legacy "Access Token" (`Token <t>`), JWT access token (`Bearer <t>`),
+# and JWT REFRESH token (what the UI shows in JWT mode, token_type=refresh) -> exchange via
+# POST /api/token/refresh for a short-lived access token, then Bearer it. Auto-detect + re-mint on 401.
+AUTH = {"scheme": None, "bearer": None}
+
+
+def _refresh_access(url, token):
+    r = requests.post(url.rstrip("/") + "/api/token/refresh", json={"refresh": token}, timeout=30)
+    r.raise_for_status()
+    AUTH["bearer"] = r.json()["access"]
 
 
 def get(url, token, path, **params):
-    schemes = _SCHEME or ["Token", "Bearer"]
-    last = None
-    for sch in schemes:
-        r = requests.get(url.rstrip("/") + path,
-                         headers={"Authorization": f"{sch} {token}"}, params=params, timeout=60)
+    def _try(hdr):
+        return requests.get(url.rstrip("/") + path, headers=hdr, params=params, timeout=60)
+
+    if AUTH["scheme"] == "Token":
+        r = _try({"Authorization": f"Token {token}"})
+    elif AUTH["scheme"] == "Bearer":
+        r = _try({"Authorization": f"Bearer {AUTH['bearer']}"})
         if r.status_code == 401:
-            last = r
-            continue
-        if not _SCHEME:
-            _SCHEME.append(sch)
-        r.raise_for_status()
-        return r.json()
-    last.raise_for_status()
+            _refresh_access(url, token)
+            r = _try({"Authorization": f"Bearer {AUTH['bearer']}"})
+    else:
+        r = _try({"Authorization": f"Token {token}"})
+        if r.status_code != 401:
+            AUTH["scheme"] = "Token"
+        else:
+            r = _try({"Authorization": f"Bearer {token}"})
+            if r.status_code != 401:
+                AUTH["scheme"], AUTH["bearer"] = "Bearer", token
+            else:
+                _refresh_access(url, token)
+                r = _try({"Authorization": f"Bearer {AUTH['bearer']}"})
+                AUTH["scheme"] = "Bearer"
+    r.raise_for_status()
+    return r.json()
 
 
 def main():

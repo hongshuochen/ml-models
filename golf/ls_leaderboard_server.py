@@ -22,24 +22,50 @@ STATE = {"html": "<h1>starting…</h1>", "ts": 0}
 ARGS = None
 
 
-# LS legacy "Access Token" wants `Token <t>`; the newer JWT "Personal Access Token" wants `Bearer <t>`.
-# Auto-detect once, then stick with whichever authenticates.
-AUTH = {"scheme": None}
+# Three LS token flavors:
+#  - legacy "Access Token"           -> header `Token <t>`
+#  - JWT ACCESS token (short-lived)  -> header `Bearer <t>`
+#  - JWT REFRESH token (what the UI's "Access Token" page shows in JWT mode, token_type=refresh)
+#    -> POST /api/token/refresh {"refresh": t} to mint a short-lived access token, then Bearer it.
+# We auto-detect and, for the refresh flow, re-mint on 401 (access tokens expire).
+AUTH = {"scheme": None, "bearer": None}  # scheme: "Token" | "Bearer"; bearer: the value to send
+
+
+def _refresh_access():
+    r = requests.post(ARGS.url.rstrip("/") + "/api/token/refresh",
+                      json={"refresh": ARGS.token}, timeout=30)
+    r.raise_for_status()
+    AUTH["bearer"] = r.json()["access"]
+
+
+def _try(path, params, header):
+    return requests.get(ARGS.url.rstrip("/") + path, headers=header, params=params, timeout=90)
 
 
 def get(path, **params):
-    schemes = [AUTH["scheme"]] if AUTH["scheme"] else ["Token", "Bearer"]
-    last = None
-    for sch in schemes:
-        r = requests.get(ARGS.url.rstrip("/") + path,
-                         headers={"Authorization": f"{sch} {ARGS.token}"}, params=params, timeout=90)
-        if r.status_code == 401:
-            last = r
-            continue
-        AUTH["scheme"] = sch
-        r.raise_for_status()
-        return r.json()
-    last.raise_for_status()
+    # Established scheme: use it (re-minting the JWT access token on expiry).
+    if AUTH["scheme"] == "Token":
+        r = _try(path, params, {"Authorization": f"Token {ARGS.token}"})
+    elif AUTH["scheme"] == "Bearer":
+        r = _try(path, params, {"Authorization": f"Bearer {AUTH['bearer']}"})
+        if r.status_code == 401:            # access token expired -> re-mint and retry
+            _refresh_access()
+            r = _try(path, params, {"Authorization": f"Bearer {AUTH['bearer']}"})
+    else:
+        # First call: probe legacy Token, then raw Bearer, then refresh->access Bearer.
+        r = _try(path, params, {"Authorization": f"Token {ARGS.token}"})
+        if r.status_code != 401:
+            AUTH["scheme"] = "Token"
+        else:
+            r = _try(path, params, {"Authorization": f"Bearer {ARGS.token}"})
+            if r.status_code != 401:
+                AUTH["scheme"], AUTH["bearer"] = "Bearer", ARGS.token
+            else:
+                _refresh_access()           # treat token as a refresh token
+                r = _try(path, params, {"Authorization": f"Bearer {AUTH['bearer']}"})
+                AUTH["scheme"] = "Bearer"
+    r.raise_for_status()
+    return r.json()
 
 
 def build_stats():
