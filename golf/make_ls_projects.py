@@ -55,6 +55,9 @@ def main():
     ap.add_argument("--ls-prefix", default="/data/local-files/?d=images/",
                     help="LS local-files URL prefix (DOCUMENT_ROOT must be the sam_dir)")
     ap.add_argument("--default-split", default="train", help="split for people missing from the manifest")
+    ap.add_argument("--splits", default="train,val,test",
+                    help="which ls_<split>.json files to WRITE (comma-sep). Use 'val,test' to leave an "
+                         "already-imported ls_train.json untouched.")
     ap.add_argument("--val-test-stride", type=int, default=1,
                     help="subsample val/test to every Nth frame PER VIDEO (train unaffected). The frames were "
                          "pre-labeled at 5fps, so 5 -> ~1fps. Lets you label a light val/test now and add the "
@@ -127,7 +130,11 @@ def main():
     if stride > 1:
         print(f"val/test stride {stride}, keeping phase(s) {sorted(keep_phases)} (~1fps of the 5fps frames); "
               f"deferred for a later add: {dict(deferred)}")
+    write_splits = {s.strip() for s in args.splits.split(",") if s.strip()}
     for split, t in tasks.items():
+        if split not in write_splits:
+            print(f"  {split}: {len(t)} tasks (NOT written — not in --splits)")
+            continue
         outp = D / f"ls_{split}.json"
         outp.write_text(json.dumps(t, indent=1))
         print(f"  {split}: {len(t)} tasks -> {outp}")
