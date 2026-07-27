@@ -88,7 +88,29 @@ viewers' side — the server holds it.
 ```
 Leave it running (e.g. `nohup … &` or a second terminal). CLI-only variant: `golf/ls_progress.py`.
 
-## 7. Export → training
-Each project → **Export → YOLO** → a dir with `images/` + `labels/`.
-- **val / test** exports = the held-out eval sets (finally a real `hole` recall).
-- **train** export = `--reviewed` source for `golf/build_and_train_golf.py` (see OFFLINE_PIPELINE.md).
+## 7. Once labeling is DONE → export + train v6  (one script)
+`ls_export_to_yolo.py` pulls the human-corrected boxes from all 3 projects and writes YOLO
+`images/ (symlink) + labels/` dirs, then prints the exact train + test-eval commands. Project ids:
+train=15, val=18, test=20 (yours may differ — `ls_progress.py` with no `--project` lists them).
+```bash
+~/ml-models/.venv/bin/python golf/ls_export_to_yolo.py \
+    --url http://105.145.25.32:8080 --token '<TOKEN>' \
+    --train 15 --val 18 --test 20 \
+    --images-dir out_prelabel/images --out golf_reviewed
+```
+It reports per-split labeled-frame + **per-class box counts** (watch the `hole` count — that's what
+decides if val/test are strong enough). Then run the two commands it prints:
+```bash
+# train v6: reviewed train, eval on the NEW real val (has hole labels)
+~/ml-models/.venv/bin/python golf/build_and_train_golf.py \
+    --base-weights runs/detect/golf_ego_v5_nomined/weights/best.pt \
+    --val golf_reviewed/val --reviewed golf_reviewed/train \
+    --names ball,club_head,hole --name golf_ego_v6 --imgsz 1280 --epochs 40 --batch 6
+
+# final held-out TEST metrics (real hole recall)
+~/ml-models/.venv/bin/yolo val model=runs/detect/golf_ego_v6/weights/best.pt \
+    data=golf_reviewed/test.yaml imgsz=1280
+```
+Then deploy: `golf/deploy_golf_to_android.sh` → `golf_v6.tflite` (raw-head NPU build).
+> A reviewed frame with all boxes deleted → empty label = a valid negative (teaches "no FP here").
+> Unlabeled tasks are skipped. Re-run any time; it only re-links/re-writes.
