@@ -89,22 +89,21 @@ def fast_stats():
     return users, projects, g_done, g_total
 
 
-def build_stats():
-    """Full: adds per-annotator counts via export (heavier — only annotated tasks, but big projects)."""
-    users, projects, g_done, g_total = fast_stats()
-    by_user = Counter()
-    for pid, title, done, total in projects:
-        if total == 0 and done == 0 and "NOT FOUND" in title:
-            continue
-        # /api/tasks/ list doesn't embed annotations -> export gives only annotated tasks with full anns
-        for t in (get(f"/api/projects/{pid}/export", exportType="JSON") or []):
-            for a in (t.get("annotations") or []):
+def count_project(pid):
+    """Per-user annotation counts for ONE project. Uses the LIGHT JSON_MIN export (annotator id only,
+    no box geometry) — much smaller/faster than full JSON on big projects (train = 23k+ annotated)."""
+    c = Counter()
+    for r in (get(f"/api/projects/{pid}/export", exportType="JSON_MIN") or []):
+        uid = r.get("annotator")
+        if uid is None:  # fallback if a build emits full-shape rows
+            for a in (r.get("annotations") or []):
                 if a.get("was_cancelled"):
                     continue
-                uid = a.get("completed_by")
-                uid = uid.get("id") if isinstance(uid, dict) else uid
-                by_user[uid] += 1
-    return users, by_user, projects, g_done, g_total
+                u = a.get("completed_by")
+                c[u.get("id") if isinstance(u, dict) else u] += 1
+        else:
+            c[uid] += 1
+    return c
 
 
 def render(users, by_user, projects, g_done, g_total, computing=False):
@@ -163,11 +162,17 @@ def refresher():
         try:
             # 1) fast pass: overall progress renders in ~1s (never sit on "starting")
             users, projects, g_done, g_total = fast_stats()
-            STATE["html"] = render(users, Counter(), projects, g_done, g_total, computing=True)
+            by_user = Counter()
+            STATE["html"] = render(users, by_user, projects, g_done, g_total, computing=True)
             STATE["ts"] = time.time()
-            # 2) heavy pass: per-person counts via export (can be slow on big projects)
-            STATE["html"] = render(*build_stats())
-            STATE["ts"] = time.time()
+            # 2) per-person counts, ONE project at a time -> small projects (val/test) show at once,
+            #    the big train project fills in when its export finishes
+            for pid, title, done, total in projects:
+                if "NOT FOUND" in title:
+                    continue
+                by_user.update(count_project(pid))
+                STATE["html"] = render(users, by_user, projects, g_done, g_total)
+                STATE["ts"] = time.time()
         except Exception as e:
             # keep the last good page if we have one; only show a bare error before the first success
             if STATE["ts"] == 0:
