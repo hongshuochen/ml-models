@@ -77,16 +77,16 @@ For **each** project:
   in the bag, or only the active/in-hand club? Keep it uniform.
 
 ## 6b. Live progress website (everyone can watch)
-A shared leaderboard page so the whole team sees who's labeled how much + overall %. Runs on this
-box, polls the LS API in the background, serves an auto-refreshing HTML page. No token on the
-viewers' side — the server holds it.
+A shared page so the whole team sees who's labeled how much + overall %. Serves an auto-refreshing
+HTML page; viewers need no token. **Run it in DB mode** — it reads the LS SQLite directly, so
+per-person counts are instant (the export API re-serializes every task each call → minutes on a 20k
+project). Run it ON the LS box.
 ```bash
-# get an API token in LS: avatar -> Account & Settings -> Access Token
-~/ml-models/.venv/bin/python golf/ls_leaderboard_server.py \
-    --url http://105.145.25.32:8080 --token <TOKEN> --project 1 --port 8090 --refresh 120
-# team opens:  http://105.145.25.32:8090/       (add --project 1 2 3 once val/test exist)
+~/ml-models/.venv/bin/python golf/ls_leaderboard_server.py --db --project 15 18 20 --port 8090
+# team opens:  http://105.145.25.32:8090/         (bare --db auto-finds label_studio.sqlite3)
 ```
-Leave it running (e.g. `nohup … &` or a second terminal). CLI-only variant: `golf/ls_progress.py`.
+CLI equivalents: `golf/ls_db_leaderboard.py --project 15 18 20` (DB, fast) — the API-based
+`ls_progress.py` / server `--url --token` mode still exist for when you're NOT on the box.
 
 ## 7. Once labeling is DONE → export + train v6  (one script)
 `ls_export_to_yolo.py` pulls the human-corrected boxes from all 3 projects and writes YOLO

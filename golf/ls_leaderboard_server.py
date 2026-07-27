@@ -5,18 +5,26 @@ Runs a tiny web server on this box that polls the LS API in the background and s
 refreshing HTML leaderboard (per-annotator counts + overall progress). Anyone on the network opens
 http://<this-box-ip>:<port>/ — no token needed on their side (the server holds it).
 
+    # DB mode (FAST — reads the LS SQLite directly, per-person is instant; run ON the LS box):
+    python golf/ls_leaderboard_server.py --db --project 15 18 20 --port 8090
+    # API mode (when not on the LS box): needs a token, per-person via the slow export
     python golf/ls_leaderboard_server.py --url http://105.145.25.32:8080 --token <TOKEN> \
-        --project 1 2 3 --port 8090 --refresh 120
+        --project 15 18 20 --port 8090 --refresh 120
     # team opens:  http://105.145.25.32:8090/
 """
 import argparse
 import html
+import os
+import sys
 import threading
 import time
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # import the sibling DB helpers
+from ls_db_leaderboard import (connect_ro, detect_schema, find_db, project_progress, user_counts)
 
 STATE = {"html": "<h1>starting…</h1>", "ts": 0}
 ARGS = None
@@ -106,6 +114,29 @@ def count_project(pid):
     return c
 
 
+def db_stats():
+    """Everything (overall + per-person) straight from the LS SQLite — instant. No token, no export."""
+    db = find_db(ARGS.db if ARGS.db is not True else "")
+    if not db or not db.is_file():
+        raise RuntimeError("label_studio.sqlite3 not found — pass --db <path>")
+    con = connect_ro(db)
+    try:
+        schema = detect_schema(con)
+        prog = project_progress(con, schema, ARGS.project)
+        ids = ARGS.project or sorted(prog)
+        rows = user_counts(con, schema, ARGS.project)
+    finally:
+        con.close()
+    users, by_user = {}, Counter()
+    for pid, uid, nm, n in rows:
+        users[uid] = nm or f"user{uid}"
+        by_user[uid] += n
+    projects = [(pid, prog[pid]["title"], prog[pid]["done"], prog[pid]["total"]) for pid in ids]
+    g_done = sum(prog[pid]["done"] for pid in ids)
+    g_total = sum(prog[pid]["total"] for pid in ids)
+    return users, by_user, projects, g_done, g_total
+
+
 def render(users, by_user, projects, g_done, g_total, computing=False):
     pct = 100 * g_done / g_total if g_total else 0
     rows = ""
@@ -157,6 +188,18 @@ def render(users, by_user, projects, g_done, g_total, computing=False):
 </div></body></html>"""
 
 
+def db_refresher():
+    while True:
+        try:
+            STATE["html"] = render(*db_stats())   # DB is instant -> one cheap pass, always full
+            STATE["ts"] = time.time()
+        except Exception as e:
+            if STATE["ts"] == 0:
+                STATE["html"] = ("<h1>⛳ Golf Labeling Summary</h1>"
+                                 f"<p>error reading the LS DB: {html.escape(str(e))}</p>")
+        time.sleep(max(10, ARGS.refresh))
+
+
 def refresher():
     by_user = Counter()       # last computed per-person counts (kept between cheap refreshes)
     people_ts = 0.0           # when we last did the heavy per-person export
@@ -202,17 +245,31 @@ class H(BaseHTTPRequestHandler):
 def main():
     global ARGS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--url", required=True)
-    ap.add_argument("--token", required=True)
-    ap.add_argument("--project", type=int, nargs="+", required=True)
+    ap.add_argument("--db", nargs="?", const=True, default=None,
+                    help="DB MODE (fast): read the LS SQLite directly. Bare --db auto-finds it, or give a "
+                         "path. Run on the LS box. No token needed. Recommended.")
+    ap.add_argument("--url", help="API MODE: LS base URL (use when NOT on the LS box)")
+    ap.add_argument("--token", help="API MODE: LS API token")
+    ap.add_argument("--project", type=int, nargs="*", help="project id(s); in DB mode, omit for all")
     ap.add_argument("--port", type=int, default=8090)
-    ap.add_argument("--refresh", type=int, default=120, help="overall-progress poll seconds (cheap)")
+    ap.add_argument("--refresh", type=int, default=120, help="page/poll seconds")
     ap.add_argument("--people-refresh", type=int, default=600,
-                    help="per-person recount seconds (heavy export; keep >> --refresh so the big train "
-                         "export doesn't run every cycle)")
+                    help="API mode only: per-person recount seconds (heavy export; keep >> --refresh)")
     ARGS = ap.parse_args()
 
-    threading.Thread(target=refresher, daemon=True).start()
+    db_mode = ARGS.db is not None or not ARGS.url
+    if db_mode:
+        if not ARGS.db:                      # `--url` omitted and no `--db` -> default to auto-find DB
+            ARGS.db = True
+        print("mode: DB (reading LS SQLite directly)", flush=True)
+        worker = db_refresher
+    else:
+        if not ARGS.token or not ARGS.project:
+            ap.error("API mode needs --token and --project")
+        print("mode: API (via export)", flush=True)
+        worker = refresher
+
+    threading.Thread(target=worker, daemon=True).start()
     time.sleep(1)
     srv = ThreadingHTTPServer(("0.0.0.0", ARGS.port), H)
     print(f"leaderboard on http://0.0.0.0:{ARGS.port}/  (team opens http://<this-box-ip>:{ARGS.port}/)", flush=True)

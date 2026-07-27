@@ -4,7 +4,7 @@
 The export API re-serializes every annotated task on each call (minutes on a 20k-task project). The
 DB already has the answer: one indexed GROUP BY over the annotations table (`task_completion`),
 milliseconds. This opens the DB READ-ONLY (safe while LS runs), auto-detects the schema, and prints
-the same leaderboard as ls_progress.py.
+the same leaderboard as ls_progress.py. The functions here also power ls_leaderboard_server.py --db.
 
     ~/ml-models/.venv/bin/python golf/ls_db_leaderboard.py            # auto-find DB, all projects
     ~/ml-models/.venv/bin/python golf/ls_db_leaderboard.py --project 15 18 20
@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 
-def find_db(explicit):
+def find_db(explicit=""):
     if explicit:
         return Path(explicit).expanduser()
     cands = []
@@ -35,7 +35,6 @@ def find_db(explicit):
     for c in cands:
         if c.is_file():
             return c
-    # last resort: shallow search of common roots
     for root in [Path.home() / ".local/share/label-studio", Path.home()]:
         if root.is_dir():
             hit = next(iter(sorted(root.glob("**/label_studio.sqlite3"))), None)
@@ -44,24 +43,78 @@ def find_db(explicit):
     return None
 
 
-def cols(con, table):
+def connect_ro(db):
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)  # read-only: safe while LS is writing
+    con.execute("PRAGMA busy_timeout=5000")
+    return con
+
+
+def _cols(con, table):
     return [r[1] for r in con.execute(f"PRAGMA table_info('{table}')")]
 
 
-def tables(con):
+def _tables(con):
     return [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
 
 
-def pick(con, want_any_of, must_have):
-    """First table whose columns include all of must_have (and exists in the candidate name list)."""
-    tbs = set(tables(con))
-    for name in want_any_of:
-        if name in tbs and all(c in cols(con, name) for c in must_have):
+def _pick(con, prefer, must_have):
+    tbs = set(_tables(con))
+    for name in prefer:
+        if name in tbs and all(c in _cols(con, name) for c in must_have):
             return name
-    for name in tbs:  # fall back to scanning every table for the required columns
-        if all(c in cols(con, name) for c in must_have):
+    for name in tbs:
+        if all(c in _cols(con, name) for c in must_have):
             return name
     return None
+
+
+def detect_schema(con):
+    """Locate the annotation / user / project / task tables and build the project + name SQL exprs."""
+    ann = _pick(con, ["task_completion", "annotation", "tasks_annotation"], ["completed_by_id", "was_cancelled"])
+    usr = _pick(con, ["htx_user", "users_user", "auth_user"], ["email"])
+    proj = _pick(con, ["project"], ["id", "title"])
+    task = _pick(con, ["task"], ["id", "project_id"])
+    if not ann or not usr:
+        raise RuntimeError(f"schema not recognized (annotations={ann}, users={usr})")
+    if "project_id" in _cols(con, ann):
+        proj_expr, join = "a.project_id", ""
+    elif task:
+        proj_expr, join = "t.project_id", f" JOIN {task} t ON t.id = a.task_id"
+    else:
+        raise RuntimeError("annotations have no project_id and no task table found")
+    name_expr = ("TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''))"
+                 if "first_name" in _cols(con, usr) else "u.email")
+    return {"ann": ann, "usr": usr, "proj": proj, "task": task,
+            "proj_expr": proj_expr, "join": join, "name_expr": name_expr}
+
+
+def user_counts(con, schema, project_ids=None):
+    """-> list of (pid, uid, name, n) for non-cancelled annotations, most first."""
+    where, params = "a.was_cancelled = 0", []
+    if project_ids:
+        where += f" AND {schema['proj_expr']} IN ({','.join('?' * len(project_ids))})"
+        params = list(project_ids)
+    ne = schema["name_expr"]
+    q = (f"SELECT {schema['proj_expr']} pid, a.completed_by_id uid, "
+         f"CASE WHEN {ne}='' OR {ne} IS NULL THEN u.email ELSE {ne} END nm, COUNT(*) n "
+         f"FROM {schema['ann']} a{schema['join']} LEFT JOIN {schema['usr']} u ON u.id = a.completed_by_id "
+         f"WHERE {where} GROUP BY pid, uid ORDER BY n DESC")
+    return con.execute(q, params).fetchall()
+
+
+def project_progress(con, schema, project_ids=None):
+    """-> {pid: {'title','total','done'}}. total=all tasks, done=tasks with >=1 non-cancelled ann."""
+    task = schema["task"]
+    titles = {r[0]: r[1] for r in con.execute(f"SELECT id, title FROM {schema['proj']}")} if schema["proj"] else {}
+    out = {}
+    ids = project_ids or list(titles)
+    for pid in ids:
+        total = con.execute(f"SELECT COUNT(*) FROM {task} WHERE project_id=?", (pid,)).fetchone()[0] if task else 0
+        done = con.execute(
+            f"SELECT COUNT(DISTINCT a.task_id) FROM {schema['ann']} a{schema['join']} "
+            f"WHERE a.was_cancelled=0 AND {schema['proj_expr']}=?", (pid,)).fetchone()[0]
+        out[pid] = {"title": titles.get(pid, f"project {pid}"), "total": total, "done": done}
+    return out
 
 
 def main():
@@ -75,53 +128,28 @@ def main():
     if not db or not db.is_file():
         sys.exit("could not find label_studio.sqlite3 — pass --db /path/to/it "
                  "(check the terminal where you ran `label-studio start`, or $LABEL_STUDIO_BASE_DATA_DIR)")
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    con.execute("PRAGMA busy_timeout=5000")
+    con = connect_ro(db)
     print(f"db: {db}")
-
-    ann = pick(con, ["task_completion", "annotation", "tasks_annotation"],
-               ["completed_by_id", "was_cancelled"])
-    usr = pick(con, ["htx_user", "users_user", "auth_user"], ["email"])
-    proj = pick(con, ["project"], ["id", "title"])
+    try:
+        schema = detect_schema(con)
+    except RuntimeError as e:
+        if args.debug:
+            for t in _tables(con):
+                print(f"  {t}: {_cols(con, t)}")
+        sys.exit(f"{e}. Re-run with --debug and send the output.")
     if args.debug:
-        for t in (ann, usr, proj):
-            print(f"  table {t}: {cols(con, t) if t else '—'}")
-    if not ann or not usr:
-        sys.exit(f"schema not recognized (annotations={ann}, users={usr}). Re-run with --debug and send output.")
+        print("  schema:", {k: schema[k] for k in ("ann", "usr", "proj", "task")})
 
-    ann_cols = cols(con, ann)
-    # project id: annotation table may carry project_id directly, else join through the task table
-    if "project_id" in ann_cols:
-        proj_expr, join = "a.project_id", ""
-    else:
-        task = pick(con, ["task"], ["id", "project_id"])
-        if not task:
-            sys.exit("annotations have no project_id and no task table found; re-run with --debug.")
-        proj_expr, join = "t.project_id", f" JOIN {task} t ON t.id = a.task_id"
-
-    where = "a.was_cancelled = 0"
-    params = []
-    if args.project:
-        where += f" AND {proj_expr} IN ({','.join('?' * len(args.project))})"
-        params = args.project
-
-    name_expr = ("TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''))"
-                 if "first_name" in cols(con, usr) else "u.email")
-    q = (f"SELECT {proj_expr} pid, a.completed_by_id uid, "
-         f"CASE WHEN {name_expr}='' THEN u.email ELSE {name_expr} END nm, COUNT(*) n "
-         f"FROM {ann} a{join} LEFT JOIN {usr} u ON u.id = a.completed_by_id "
-         f"WHERE {where} GROUP BY pid, uid ORDER BY n DESC")
-    rows = con.execute(q, params).fetchall()
-
-    titles = {r[0]: r[1] for r in con.execute(f"SELECT id, title FROM {proj}")} if proj else {}
+    rows = user_counts(con, schema, args.project)
     by_proj, by_user, total = {}, {}, 0
     for pid, uid, nm, n in rows:
-        by_proj.setdefault(pid, []).append((nm or f"user{uid}", n))
-        by_user[nm or f"user{uid}"] = by_user.get(nm or f"user{uid}", 0) + n
+        nm = nm or f"user{uid}"
+        by_proj.setdefault(pid, []).append((nm, n))
+        by_user[nm] = by_user.get(nm, 0) + n
         total += n
-
     for pid in sorted(by_proj):
-        print(f"\n=== project {pid}: {titles.get(pid,'')} ===")
+        prog = project_progress(con, schema, [pid])[pid]
+        print(f"\n=== project {pid}: {prog['title']} — {prog['done']:,}/{prog['total']:,} tasks ===")
         for nm, n in sorted(by_proj[pid], key=lambda x: -x[1]):
             print(f"  {nm:24s} {n:>7,}")
     print(f"\n{'='*46}\nLEADERBOARD (all requested projects) — {total:,} annotations")
