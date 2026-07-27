@@ -28,6 +28,26 @@ from ls_db_leaderboard import (connect_ro, detect_schema, find_db, project_progr
 
 STATE = {"html": "<h1>starting…</h1>", "ts": 0}
 ARGS = None
+DB_MODE = False
+LOCK = threading.Lock()
+
+
+def ensure_fresh():
+    """DB mode: recompute on demand (so a manual F5 is truly live), with a small TTL so a burst of
+    viewers coalesces into one DB read."""
+    ttl = max(2, min(ARGS.refresh, 5))
+    if STATE["ts"] and time.time() - STATE["ts"] < ttl:
+        return
+    with LOCK:
+        if STATE["ts"] and time.time() - STATE["ts"] < ttl:
+            return
+        try:
+            STATE["html"] = render(*db_stats())
+            STATE["ts"] = time.time()
+        except Exception as e:
+            if not STATE["ts"]:
+                STATE["html"] = ("<h1>⛳ Golf Labeling Summary</h1>"
+                                 f"<p>error reading the LS DB: {html.escape(str(e))}</p>")
 
 
 # Three LS token flavors:
@@ -188,18 +208,6 @@ def render(users, by_user, projects, g_done, g_total, computing=False):
 </div></body></html>"""
 
 
-def db_refresher():
-    while True:
-        try:
-            STATE["html"] = render(*db_stats())   # DB is instant -> one cheap pass, always full
-            STATE["ts"] = time.time()
-        except Exception as e:
-            if STATE["ts"] == 0:
-                STATE["html"] = ("<h1>⛳ Golf Labeling Summary</h1>"
-                                 f"<p>error reading the LS DB: {html.escape(str(e))}</p>")
-        time.sleep(max(10, ARGS.refresh))
-
-
 def refresher():
     by_user = Counter()       # last computed per-person counts (kept between cheap refreshes)
     people_ts = 0.0           # when we last did the heavy per-person export
@@ -231,6 +239,8 @@ def refresher():
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
+        if DB_MODE:
+            ensure_fresh()               # F5 = live (TTL-coalesced); API mode serves the bg snapshot
         body = STATE["html"].encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -257,20 +267,19 @@ def main():
                     help="API mode only: per-person recount seconds (heavy export; keep >> --refresh)")
     ARGS = ap.parse_args()
 
-    db_mode = ARGS.db is not None or not ARGS.url
-    if db_mode:
+    global DB_MODE
+    DB_MODE = ARGS.db is not None or not ARGS.url
+    if DB_MODE:
         if not ARGS.db:                      # `--url` omitted and no `--db` -> default to auto-find DB
             ARGS.db = True
-        print("mode: DB (reading LS SQLite directly)", flush=True)
-        worker = db_refresher
+        print("mode: DB (reading LS SQLite directly, live on each request)", flush=True)
+        ensure_fresh()                       # warm the first page
     else:
         if not ARGS.token or not ARGS.project:
             ap.error("API mode needs --token and --project")
         print("mode: API (via export)", flush=True)
-        worker = refresher
-
-    threading.Thread(target=worker, daemon=True).start()
-    time.sleep(1)
+        threading.Thread(target=refresher, daemon=True).start()
+        time.sleep(1)
     srv = ThreadingHTTPServer(("0.0.0.0", ARGS.port), H)
     print(f"leaderboard on http://0.0.0.0:{ARGS.port}/  (team opens http://<this-box-ip>:{ARGS.port}/)", flush=True)
     srv.serve_forever()
