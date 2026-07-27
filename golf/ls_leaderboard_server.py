@@ -158,21 +158,26 @@ def render(users, by_user, projects, g_done, g_total, computing=False):
 
 
 def refresher():
+    by_user = Counter()       # last computed per-person counts (kept between cheap refreshes)
+    people_ts = 0.0           # when we last did the heavy per-person export
     while True:
         try:
-            # 1) fast pass: overall progress renders in ~1s (never sit on "starting")
+            # 1) cheap pass EVERY cycle: overall progress + project bars (fast project-summary calls)
             users, projects, g_done, g_total = fast_stats()
-            by_user = Counter()
-            STATE["html"] = render(users, by_user, projects, g_done, g_total, computing=True)
+            first = not by_user and people_ts == 0
+            STATE["html"] = render(users, by_user, projects, g_done, g_total, computing=first)
             STATE["ts"] = time.time()
-            # 2) per-person counts, ONE project at a time -> small projects (val/test) show at once,
-            #    the big train project fills in when its export finishes
-            for pid, title, done, total in projects:
-                if "NOT FOUND" in title:
-                    continue
-                by_user.update(count_project(pid))
-                STATE["html"] = render(users, by_user, projects, g_done, g_total)
-                STATE["ts"] = time.time()
+            # 2) heavy pass, only every --people-refresh secs: re-export per-person counts
+            if time.time() - people_ts >= ARGS.people_refresh:
+                fresh = Counter()
+                for pid, title, done, total in projects:
+                    if "NOT FOUND" in title:
+                        continue
+                    fresh.update(count_project(pid))
+                    STATE["html"] = render(users, fresh, projects, g_done, g_total)  # fill as each finishes
+                    STATE["ts"] = time.time()
+                by_user = fresh
+                people_ts = time.time()
         except Exception as e:
             # keep the last good page if we have one; only show a bare error before the first success
             if STATE["ts"] == 0:
@@ -201,7 +206,10 @@ def main():
     ap.add_argument("--token", required=True)
     ap.add_argument("--project", type=int, nargs="+", required=True)
     ap.add_argument("--port", type=int, default=8090)
-    ap.add_argument("--refresh", type=int, default=120, help="poll/refresh seconds")
+    ap.add_argument("--refresh", type=int, default=120, help="overall-progress poll seconds (cheap)")
+    ap.add_argument("--people-refresh", type=int, default=600,
+                    help="per-person recount seconds (heavy export; keep >> --refresh so the big train "
+                         "export doesn't run every cycle)")
     ARGS = ap.parse_args()
 
     threading.Thread(target=refresher, daemon=True).start()
