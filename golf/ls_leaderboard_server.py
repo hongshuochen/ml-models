@@ -68,14 +68,15 @@ def get(path, **params):
     return r.json()
 
 
-def build_stats():
+def fast_stats():
+    """Cheap: users + per-project done/total from the project summary (no export). Renders instantly."""
     users = {}
     for u in get("/api/users/"):
         nm = (f"{u.get('first_name','')} {u.get('last_name','')}").strip() or u.get("email") or f"user{u['id']}"
         users[u["id"]] = nm
     pl = get("/api/projects/")
     available = {p["id"] for p in (pl.get("results", pl) if isinstance(pl, dict) else pl)}
-    by_user, projects = Counter(), []
+    projects = []
     g_done = g_total = 0
     for pid in ARGS.project:
         if pid not in available:
@@ -85,6 +86,16 @@ def build_stats():
         total, done = proj.get("task_number", 0), proj.get("num_tasks_with_annotations", 0)
         g_total += total; g_done += done
         projects.append((pid, proj.get("title", f"project {pid}"), done, total))
+    return users, projects, g_done, g_total
+
+
+def build_stats():
+    """Full: adds per-annotator counts via export (heavier — only annotated tasks, but big projects)."""
+    users, projects, g_done, g_total = fast_stats()
+    by_user = Counter()
+    for pid, title, done, total in projects:
+        if total == 0 and done == 0 and "NOT FOUND" in title:
+            continue
         # /api/tasks/ list doesn't embed annotations -> export gives only annotated tasks with full anns
         for t in (get(f"/api/projects/{pid}/export", exportType="JSON") or []):
             for a in (t.get("annotations") or []):
@@ -96,7 +107,7 @@ def build_stats():
     return users, by_user, projects, g_done, g_total
 
 
-def render(users, by_user, projects, g_done, g_total):
+def render(users, by_user, projects, g_done, g_total, computing=False):
     pct = 100 * g_done / g_total if g_total else 0
     rows = ""
     top = by_user.most_common()
@@ -106,6 +117,9 @@ def render(users, by_user, projects, g_done, g_total):
         w = 100 * c / mx if mx else 0
         rows += (f'<tr><td class="rk">{rank}</td><td class="nm">{name}</td>'
                  f'<td class="ct">{c:,}</td><td class="bar"><span style="width:{w:.1f}%"></span></td></tr>')
+    if not rows:
+        rows = (f'<tr><td colspan="4" style="text-align:center;color:var(--soft)">'
+                f'{"computing per-person counts…" if computing else "no annotations yet"}</td></tr>')
     proj_rows = "".join(
         f'<div class="pj"><b>{html.escape(t)}</b> — {d:,}/{n:,} '
         f'<small>({100*d/n if n else 0:.1f}%)</small></div>' for _, t, d, n in projects)
@@ -139,7 +153,7 @@ def render(users, by_user, projects, g_done, g_total):
  <div class="prog"><div class="big">{g_done:,} <span style="font-size:16px;color:var(--soft);font-weight:500">/ {g_total:,} labeled ({pct:.1f}%)</span></div>
   <div class="track"><span></span></div>
   <div class="pjs">{proj_rows}</div></div>
- <table>{rows or '<tr><td>no annotations yet</td></tr>'}</table>
+ <table>{rows}</table>
  <p class="foot">updated {time.strftime('%H:%M:%S')} · counts human annotations only</p>
 </div></body></html>"""
 
@@ -147,10 +161,18 @@ def render(users, by_user, projects, g_done, g_total):
 def refresher():
     while True:
         try:
+            # 1) fast pass: overall progress renders in ~1s (never sit on "starting")
+            users, projects, g_done, g_total = fast_stats()
+            STATE["html"] = render(users, Counter(), projects, g_done, g_total, computing=True)
+            STATE["ts"] = time.time()
+            # 2) heavy pass: per-person counts via export (can be slow on big projects)
             STATE["html"] = render(*build_stats())
             STATE["ts"] = time.time()
         except Exception as e:
-            STATE["html"] = f"<h1>Golf Leaderboard</h1><p>error talking to Label Studio: {html.escape(str(e))}</p>"
+            # keep the last good page if we have one; only show a bare error before the first success
+            if STATE["ts"] == 0:
+                STATE["html"] = ("<h1>⛳ Golf Labeling Summary</h1>"
+                                 f"<p>error talking to Label Studio: {html.escape(str(e))}</p>")
         time.sleep(max(15, ARGS.refresh))
 
 
