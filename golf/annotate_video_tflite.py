@@ -9,11 +9,11 @@ box = (cell+0.5 ± ltrb)*stride/INPUT, per-class greedy NMS) so the boxes match 
 Use this when you want the PHONE's behavior (640, f16, raw-head). For a quick approximation the v5 .pt
 at --imgsz 640 is very close (parity-verified) — annotate_video.py does that.
 
-    ~/ml-models/.venv/bin/python golf/annotate_video_tflite.py <video-or-folder> \
-        --model android-golf/app/src/main/assets/golf_v5.tflite --conf 0.5
+    python annotate_video_tflite.py <video-or-folder> --model golf_v5.tflite --conf 0.5
 
-Needs a TFLite runtime: tries ai_edge_litert, tflite_runtime, then tensorflow.lite (the export env has
-tensorflow). Install one: `uv pip install --python ~/ml-models/.venv/bin/python ai-edge-litert`.
+Standalone (no other repo files needed) — shippable as just this script + the .tflite + RUN_VIDEO_GUIDE.md.
+Needs a TFLite runtime: tries ai_edge_litert, tflite_runtime, then tensorflow.lite.
+Install one: `pip install ai-edge-litert opencv-python-headless numpy`.
 """
 import argparse
 import glob
