@@ -6,6 +6,19 @@ __pycache__/
 # Datasets (auto-downloaded by Ultralytics, large)
 datasets/
 
+# Golf pipeline data + outputs (raw videos, extracted frames, LS exports — large, regenerable)
+data/
+out_prelabel/
+golf_reviewed/
+out_sam/
+out_mined/
+out_review*/
+out_sam_preview/
+*.sqlite3
+ls_train.json
+ls_val.json
+ls_test.json
+
 # Training outputs / runs (checkpoints, plots, large)
 runs/
 
