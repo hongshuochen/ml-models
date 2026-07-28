@@ -42,7 +42,8 @@ def load_interpreter(model):
 
 
 def sigmoid(x):
-    return 1.0 / (1.0 + np.exp(-x))
+    # clip keeps exp() from overflowing on very negative logits (harmless, but avoids the RuntimeWarning)
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -30.0, 30.0)))
 
 
 def decode(outputs, inp, nc, score_thr):
