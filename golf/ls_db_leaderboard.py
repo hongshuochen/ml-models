@@ -84,8 +84,24 @@ def detect_schema(con):
         raise RuntimeError("annotations have no project_id and no task table found")
     name_expr = ("TRIM(COALESCE(u.first_name,'')||' '||COALESCE(u.last_name,''))"
                  if "first_name" in _cols(con, usr) else "u.email")
-    return {"ann": ann, "usr": usr, "proj": proj, "task": task,
+    ann_cols = _cols(con, ann)
+    time_col = "updated_at" if "updated_at" in ann_cols else ("created_at" if "created_at" in ann_cols else None)
+    return {"ann": ann, "usr": usr, "proj": proj, "task": task, "time_col": time_col,
             "proj_expr": proj_expr, "join": join, "name_expr": name_expr}
+
+
+def active_annotators(con, schema, project_ids=None, window_secs=60):
+    """Distinct annotators who touched an annotation in the last `window_secs` (None if no timestamp col).
+    Uses the annotation's timestamp vs SQLite datetime('now') — both are UTC, so they line up."""
+    if not schema["time_col"]:
+        return None
+    where = f"a.was_cancelled=0 AND a.{schema['time_col']} >= datetime('now', ?)"
+    params = [f"-{int(window_secs)} seconds"]
+    if project_ids:
+        where += f" AND {schema['proj_expr']} IN ({','.join('?' * len(project_ids))})"
+        params += list(project_ids)
+    q = f"SELECT COUNT(DISTINCT a.completed_by_id) FROM {schema['ann']} a{schema['join']} WHERE {where}"
+    return con.execute(q, params).fetchone()[0]
 
 
 def user_counts(con, schema, project_ids=None):
@@ -152,7 +168,9 @@ def main():
         print(f"\n=== project {pid}: {prog['title']} — {prog['done']:,}/{prog['total']:,} tasks ===")
         for nm, n in sorted(by_proj[pid], key=lambda x: -x[1]):
             print(f"  {nm:24s} {n:>7,}")
-    print(f"\n{'='*46}\nLEADERBOARD (all requested projects) — {total:,} annotations")
+    active = active_annotators(con, schema, args.project, 60)
+    print(f"\n{'='*46}\nLEADERBOARD (all requested projects) — {total:,} annotations"
+          + (f"  |  🟢 {active} labeling now (last 60s)" if active is not None else ""))
     for rank, (nm, n) in enumerate(sorted(by_user.items(), key=lambda x: -x[1]), 1):
         print(f"  {rank:>2}. {nm:24s} {n:>7,}")
 

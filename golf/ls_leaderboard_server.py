@@ -24,7 +24,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # import the sibling DB helpers
-from ls_db_leaderboard import (connect_ro, detect_schema, find_db, project_progress, user_counts)
+from ls_db_leaderboard import (active_annotators, connect_ro, detect_schema, find_db,
+                               project_progress, user_counts)
 
 STATE = {"html": "<h1>starting…</h1>", "ts": 0}
 ARGS = None
@@ -145,6 +146,7 @@ def db_stats():
         prog = project_progress(con, schema, ARGS.project)
         ids = ARGS.project or sorted(prog)
         rows = user_counts(con, schema, ARGS.project)
+        active = active_annotators(con, schema, ARGS.project, ARGS.active_window)
     finally:
         con.close()
     users, by_user = {}, Counter()
@@ -154,10 +156,10 @@ def db_stats():
     projects = [(pid, prog[pid]["title"], prog[pid]["done"], prog[pid]["total"]) for pid in ids]
     g_done = sum(prog[pid]["done"] for pid in ids)
     g_total = sum(prog[pid]["total"] for pid in ids)
-    return users, by_user, projects, g_done, g_total
+    return users, by_user, projects, g_done, g_total, active
 
 
-def render(users, by_user, projects, g_done, g_total, computing=False):
+def render(users, by_user, projects, g_done, g_total, active=None, computing=False):
     pct = 100 * g_done / g_total if g_total else 0
     rows = ""
     top = by_user.most_common()
@@ -197,10 +199,15 @@ def render(users, by_user, projects, g_done, g_total, computing=False):
  .bar{{width:38%}} .bar>span{{display:block;height:9px;border-radius:99px;
   background:linear-gradient(90deg,var(--g),var(--g2))}}
  .foot{{color:var(--soft);font-size:12px;margin-top:14px;text-align:center}}
+ .live{{display:inline-flex;align-items:center;gap:6px;background:#e9f6ef;color:var(--g2);
+  font-weight:700;padding:3px 10px;border-radius:99px;font-size:13px}}
+ .dot{{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,.5);
+  animation:pulse 1.6s infinite}} @keyframes pulse{{70%{{box-shadow:0 0 0 7px rgba(34,197,94,0)}}}}
 </style></head><body><div class="wrap">
  <h1>⛳ Golf Labeling Summary</h1>
  <p class="sub">Live — auto-refreshes every {ARGS.refresh}s</p>
- <div class="prog"><div class="big">{g_done:,} <span style="font-size:16px;color:var(--soft);font-weight:500">/ {g_total:,} labeled ({pct:.1f}%)</span></div>
+ <div class="prog"><div class="big">{g_done:,} <span style="font-size:16px;color:var(--soft);font-weight:500">/ {g_total:,} labeled ({pct:.1f}%)</span>
+  {'' if active is None else f'<span class="live"><span class="dot"></span>{active} labeling now <span style="font-weight:500;opacity:.75">· last {ARGS.active_window}s</span></span>'}</div>
   <div class="track"><span></span></div>
   <div class="pjs">{proj_rows}</div></div>
  <table>{rows}</table>
@@ -262,7 +269,9 @@ def main():
     ap.add_argument("--token", help="API MODE: LS API token")
     ap.add_argument("--project", type=int, nargs="*", help="project id(s); in DB mode, omit for all")
     ap.add_argument("--port", type=int, default=8090)
-    ap.add_argument("--refresh", type=int, default=120, help="page/poll seconds")
+    ap.add_argument("--refresh", type=int, default=60, help="page/poll seconds")
+    ap.add_argument("--active-window", type=int, default=60,
+                    help="DB mode: seconds counted as 'labeling now' (distinct annotators active in this window)")
     ap.add_argument("--people-refresh", type=int, default=600,
                     help="API mode only: per-person recount seconds (heavy export; keep >> --refresh)")
     ARGS = ap.parse_args()
