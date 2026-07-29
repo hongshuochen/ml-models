@@ -159,10 +159,6 @@ def db_stats():
     return users, by_user, projects, g_done, g_total, active
 
 
-def _winlbl(secs):
-    return f"{secs // 60} min" if secs >= 120 else f"{secs}s"
-
-
 def render(users, by_user, projects, g_done, g_total, active=None, computing=False):
     pct = 100 * g_done / g_total if g_total else 0
     rows = ""
@@ -211,7 +207,7 @@ def render(users, by_user, projects, g_done, g_total, active=None, computing=Fal
  <h1>⛳ Golf Labeling Summary</h1>
  <p class="sub">Live — auto-refreshes every {ARGS.refresh}s</p>
  <div class="prog"><div class="big">{g_done:,} <span style="font-size:16px;color:var(--soft);font-weight:500">/ {g_total:,} labeled ({pct:.1f}%)</span>
-  {'' if active is None else f'<span class="live"><span class="dot"></span>{active} labeling now <span style="font-weight:500;opacity:.75">· last {_winlbl(ARGS.active_window)}</span></span>'}</div>
+  {'' if active is None else f'<span class="live"><span class="dot"></span>{active} labeling now</span>'}</div>
   <div class="track"><span></span></div>
   <div class="pjs">{proj_rows}</div></div>
  <table>{rows}</table>

@@ -170,7 +170,7 @@ def main():
             print(f"  {nm:24s} {n:>7,}")
     active = active_annotators(con, schema, args.project, 300)
     print(f"\n{'='*46}\nLEADERBOARD (all requested projects) — {total:,} annotations"
-          + (f"  |  🟢 {active} labeling now (last 5 min)" if active is not None else ""))
+          + (f"  |  🟢 {active} labeling now" if active is not None else ""))
     for rank, (nm, n) in enumerate(sorted(by_user.items(), key=lambda x: -x[1]), 1):
         print(f"  {rank:>2}. {nm:24s} {n:>7,}")
 
