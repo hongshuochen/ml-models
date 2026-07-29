@@ -102,22 +102,36 @@ def process(video, it, args, names, out_dir):
     cap = cv2.VideoCapture(str(video))
     W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)); H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    out_path = out_dir / f"{video.stem}_tflite.mp4"
+    tag = "letterbox" if args.letterbox else "squash"
+    out_path = out_dir / f"{video.stem}_{tag}.mp4"
     vw = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
     tally, n = {}, 0
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        # preprocess EXACTLY like the app: resize (squash) to INPUT, RGB, /255
-        rgb = cv2.cvtColor(cv2.resize(frame, (inp, inp)), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        if args.letterbox:
+            # aspect-preserving resize + pad to INPUT (matches Ultralytics TRAINING geometry)
+            r = min(inp / W, inp / H)
+            nw, nh = round(W * r), round(H * r)
+            dx, dy = (inp - nw) // 2, (inp - nh) // 2
+            canvas = np.full((inp, inp, 3), 114, np.uint8)
+            canvas[dy:dy + nh, dx:dx + nw] = cv2.resize(frame, (nw, nh))
+            proc = canvas
+        else:
+            proc = cv2.resize(frame, (inp, inp))   # squash — matches the current phone app
+        rgb = cv2.cvtColor(proc, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         it.set_tensor(in_idx, rgb[None])
         it.invoke()
         outs = [it.get_tensor(d["index"])[0] for d in out_details]
         dets = nms_per_class(decode(outs, inp, nc, args.conf), args.iou)
         for x1, y1, x2, y2, sc, c in dets:
             col = COLORS[c % len(COLORS)]
-            p1, p2 = (int(x1 * W), int(y1 * H)), (int(x2 * W), int(y2 * H))
+            if args.letterbox:  # undo pad+scale back to original-frame pixels
+                p1 = (int((x1 * inp - dx) / r), int((y1 * inp - dy) / r))
+                p2 = (int((x2 * inp - dx) / r), int((y2 * inp - dy) / r))
+            else:               # squash: normalized [0,1] maps straight onto the full frame
+                p1, p2 = (int(x1 * W), int(y1 * H)), (int(x2 * W), int(y2 * H))
             cv2.rectangle(frame, p1, p2, col, args.line_width)
             nm = names[c] if c < len(names) else str(c)
             cv2.putText(frame, f"{nm} {sc:.2f}", (p1[0], max(14, p1[1] - 5)),
@@ -138,6 +152,9 @@ def main():
     ap.add_argument("--out", type=Path, default=None, help="output dir [default: alongside input]")
     ap.add_argument("--conf", type=float, default=0.5, help="score threshold (app SCORE_THRESHOLD=0.5)")
     ap.add_argument("--iou", type=float, default=0.5, help="NMS IoU (app NMS_IOU=0.5)")
+    ap.add_argument("--letterbox", action="store_true",
+                    help="aspect-preserving letterbox (matches TRAINING) instead of squash (the phone app). "
+                         "Use to A/B the two — output tagged _letterbox vs _squash.")
     ap.add_argument("--input-size", type=int, default=640, help="model input (app INPUT=640)")
     ap.add_argument("--names", default="ball,club_head,hole")
     ap.add_argument("--line-width", type=int, default=2)
