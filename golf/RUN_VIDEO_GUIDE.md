@@ -5,7 +5,7 @@ on-device phone app draws them (this runs the phone's `.tflite` model).
 
 You only need **3 files** (no repo to clone):
 1. `annotate_video_tflite.py` — the runner (this folder)
-2. `golf_v5.tflite` — the model (ask whoever shared this)
+2. `golf_v6.tflite` — the model (ask whoever shared this)
 3. this guide
 
 Requirements: **Python 3.10+**. That's it — no GPU, no PyTorch, no Ultralytics.
@@ -31,10 +31,10 @@ After `activate`, just type `python` — it's the env's Python. Later, `deactiva
 
 ## 2. Run it
 
-Put `annotate_video_tflite.py` and `golf_v5.tflite` in the same folder as your video, then:
+Put `annotate_video_tflite.py` and `golf_v6.tflite` in the same folder as your video, then:
 
 ```bash
-python annotate_video_tflite.py YOUR_VIDEO.mp4 --model golf_v5.tflite --conf 0.5
+python annotate_video_tflite.py YOUR_VIDEO.mp4 --model golf_v6.tflite --conf 0.25
 ```
 
 - Output: **`YOUR_VIDEO_tflite.mp4`** next to the input.
@@ -46,7 +46,7 @@ Useful flags:
 
 | Flag | Meaning |
 |---|---|
-| `--conf 0.5` | keep boxes at score ≥ 0.5 (same threshold as the phone). Lower it (e.g. `0.25`) to also see weaker detections. |
+| `--conf 0.25` | keep boxes at score ≥ 0.25 (shows more, incl. weaker/distant detections). Raise to `0.5` to match the phone's stricter threshold (fewer boxes, fewer false positives). |
 | `--max-frames 300` | stop after N frames — for a fast check |
 | `--names ball,club_head,hole` | class names (only change if using a different model) |
 
@@ -59,6 +59,6 @@ Useful flags:
 | `no TFLite runtime` | `pip install ai-edge-litert` (or `tflite-runtime`). |
 | `SSLError … CERTIFICATE_VERIFY_FAILED` during `pip install` | Corporate network. Use system certs: `pip install --cert /etc/ssl/certs/ca-certificates.crt ai-edge-litert opencv-python-headless numpy` |
 | Output video won't open | Install ffmpeg, or re-encode: `ffmpeg -i out_tflite.mp4 -c:v libx264 out_h264.mp4` |
-| Boxes look aspect-distorted | The app may letterbox instead of squash — tell the maintainer to adjust preprocessing. |
+| Boxes slightly off | The runner letterboxes (aspect-preserving, matches the app + training); if boxes look wrong, check the video isn't pre-rotated/cropped. |
 
 That's it — one env, one command, an annotated video out.
