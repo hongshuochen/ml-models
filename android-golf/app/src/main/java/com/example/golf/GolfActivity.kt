@@ -3,6 +3,8 @@ package com.example.golf
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.os.Bundle
 import android.util.Log
@@ -89,19 +91,34 @@ class GolfActivity : AppCompatActivity() {
     private fun analyze(image: ImageProxy) {
         try {
             val upright = image.toUprightBitmap()
-            val scaled = Bitmap.createScaledBitmap(upright, GolfDetector.INPUT, GolfDetector.INPUT, true)
+            val w = upright.width; val h = upright.height
+            val INPUT = GolfDetector.INPUT
+            // LETTERBOX for the model (aspect-preserving + 114 gray pad) — matches training geometry,
+            // slightly better than stretch (esp. the small ball). SQUASH kept for GlobalMotion so the
+            // hit counter's 640-space coords are unchanged.
+            val lb = INPUT.toFloat() / maxOf(w, h)             // letterbox scale (fit long side to 640)
+            val nw = Math.round(w * lb); val nh = Math.round(h * lb)
+            val padX = (INPUT - nw) / 2f; val padY = (INPUT - nh) / 2f
+            val scaledDet = letterbox(upright, nw, nh, padX, padY)
+            val scaledMotion = Bitmap.createScaledBitmap(upright, INPUT, INPUT, true)
             // (re)build on THIS (analysis) thread when the picker changes, so the UI never blocks on
             // model load / backend init; the first frame after a switch just shows the old count
-            // lazy-build on THIS (analysis) thread so onCreate/the UI never blocks on the backend
-            // benchmark; the first frame after launch just shows the count while it builds
             val det = detector ?: GolfDetector(this).also { detector = it }
             val t0 = System.nanoTime()
-            val dets = det.detect(scaled)
+            val raw = det.detect(scaledDet)
             val ms = (System.nanoTime() - t0) / 1_000_000f     // detector-only latency (what we compare)
-            motion.prepare(scaled)                       // local camera-motion estimate (~2 ms)
+            // un-letterbox each box from [0,1] of the padded 640 back to [0,1] of the upright frame
+            val dets = raw.map { d ->
+                d.copy(
+                    x1 = ((d.x1 * INPUT - padX) / (lb * w)).coerceIn(0f, 1f),
+                    y1 = ((d.y1 * INPUT - padY) / (lb * h)).coerceIn(0f, 1f),
+                    x2 = ((d.x2 * INPUT - padX) / (lb * w)).coerceIn(0f, 1f),
+                    y2 = ((d.y2 * INPUT - padY) / (lb * h)).coerceIn(0f, 1f),
+                )
+            }
+            motion.prepare(scaledMotion)                 // local camera-motion estimate (~2 ms), squash space
             val counted = hits.update(dets, System.nanoTime() / 1e9, motion)
             avgMs = if (avgMs == 0f) ms else avgMs * 0.9f + ms * 0.1f
-            val w = upright.width; val h = upright.height
             if (counted) lastHitNanos = System.nanoTime()
             // status in the offline video's clearer vocabulary (IDLE / PREPARE / HIT / FOLLOW)
             val sinceHit = (System.nanoTime() - lastHitNanos) / 1e9
@@ -124,7 +141,8 @@ class GolfActivity : AppCompatActivity() {
                 hudText.text = "%s  •  %.0f ms  •  %.1f fps  •  %s"
                     .format(backend, avgMs, if (avgMs > 0) 1000f / avgMs else 0f, status)
             }
-            if (scaled != upright) scaled.recycle()
+            scaledDet.recycle()
+            if (scaledMotion != upright) scaledMotion.recycle()
             upright.recycle()
         } catch (e: Exception) {
             Log.e(TAG, "Frame analysis failed", e)
@@ -137,6 +155,17 @@ class GolfActivity : AppCompatActivity() {
         countText.animate().scaleX(1.7f).scaleY(1.7f).setDuration(110).withEndAction {
             countText.animate().scaleX(1f).scaleY(1f).setDuration(200).start()
         }.start()
+    }
+
+    /** Aspect-preserving resize of [src] into an INPUT×INPUT bitmap, padded with YOLO's 114 gray. */
+    private fun letterbox(src: Bitmap, nw: Int, nh: Int, padX: Float, padY: Float): Bitmap {
+        val out = Bitmap.createBitmap(GolfDetector.INPUT, GolfDetector.INPUT, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        canvas.drawColor(Color.rgb(114, 114, 114))
+        val resized = Bitmap.createScaledBitmap(src, nw, nh, true)
+        canvas.drawBitmap(resized, padX, padY, null)
+        if (resized != src) resized.recycle()
+        return out
     }
 
     /** ImageProxy (RGBA_8888) → Bitmap rotated upright per the sensor rotation. */
