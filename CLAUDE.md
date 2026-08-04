@@ -46,6 +46,16 @@ browser (`webcam-tflite/`). Pipeline: detect hand box → crop → regress 21 ke
   `[1,G,G,4+nc]` (per cell `[l,t,r,b, cls logits]`, reg_max=1, no DFL); Kotlin (`GolfDetector.kt`) does
   sigmoid+argmax+per-class NMS and reads `nc` from the shape (2- or 3-class generic — only `LABELS`
   changes). Parity-verified vs the e2e `.pt` on ball/club/hole. See [[android-golf-npu-deploy]].
+- **Golf detector input is LETTERBOX, not squash** (2026-08). Training letterboxes (Ultralytics default), so the
+  app + `golf/annotate_video_tflite.py` letterbox too (aspect-preserving + 114 gray pad, boxes un-letterboxed back
+  to full-frame coords; `GolfActivity` keeps a separate squash-640 bitmap for `GlobalMotion` so hit-detector coords
+  are unchanged). Measured +0.013 mAP50 / +0.022 ball recall vs squash. `annotate_video_tflite.py` default =
+  letterbox (`--squash` for old behavior).
+- **Golf v6→v8 lineage** (fine-tune v5 on the full LS-reviewed 3-class set + `golf_hole_reviewed` for hole; base
+  stays v5 since each is a superset): results log = `golf/V6_RESULTS.md`, release doc = `golf/MODEL_RELEASE.html`,
+  workflow = `golf/LABEL_STUDIO_REVIEW.md`, split = `golf/DATASET_SPLIT.md`. v6 (50% train) already hit mAP50 0.940
+  / **hole recall 0.870** on the new 3-class val (first real hole measurement). tflite: p50=golf_v6, p85=golf_v7,
+  full=golf_v8.
 - **hand-keypoints `flip_idx` is broken upstream** → always use `hand-keypoints-fixed.yaml` (identity flip_idx); the stock one scrambles mirrored-hand keypoints.
 - **Web app must use float16/float32 — NOT int8.** tfjs-tflite's WASM runtime can't initialize
   dynamic-range int8 (hybrid) ops ("Can't initialize model"). int8 is fine for native/ARM only.

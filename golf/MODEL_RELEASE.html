@@ -49,15 +49,16 @@
 <div class="wrap">
   <h1>Golf Detector — Model Release</h1>
   <p class="lede">On-device ball / club-head / hole detector for the egocentric golf CV system.</p>
-  <p class="meta">Family: golf_ego · Backbone: YOLO26s · Latest: v5 (2026-07-22) · Baseline: v2 (2026-07-10)</p>
+  <p class="meta">Family: golf_ego · Backbone: YOLO26s · Latest: v6–v8 (2026-08, full-data, 3-class hole val) · Baseline: v2 (2026-07-10)</p>
 
   <div class="tldr">
     <h2>TL;DR</h2>
     <ul>
       <li>Per-frame <strong>YOLO26s</strong> detector for <strong>ball / club_head / hole</strong>, running on the phone's Hexagon NPU.</li>
-      <li>Latest <strong>v5 (3-class, 2026-07-22)</strong>: <strong>~11 ms / ~90 fps</strong> @640 on the S25. Ball detection is <strong>solid (small balls included)</strong>; hole class added but <strong>not yet measurable</strong> (val has no hole labels).</li>
-      <li>Baseline <strong>v2 (2-class, 2026-07-10)</strong>: mAP50 0.881, ~18 ms. v5 holds accuracy while adding hole; auto-mined data was <strong>excluded</strong> (it poisoned hole).</li>
-      <li>Main weaknesses: <strong>unseen club types are missed</strong>, plus <strong>some false positives</strong>. Trained on two data generations — <strong>v1 data</strong> (early downloads) and the large <strong>v2 data</strong> collection (27 people / 350 min, split by person).</li>
+      <li><strong>v6+ (2026-08)</strong>: fine-tuned from v5 on a fully human-reviewed egocentric set (Label Studio, 27 people, by-person split) with a proper <strong>3-class val</strong>. <strong>Hole is now measurable — recall 0.87</strong> (was un-measurable before). On the new val: <strong>mAP50 0.940, ball recall 0.909, hole recall 0.870</strong> (+0.06 mAP50 vs the v5 baseline).</li>
+      <li>Runs <strong>~11 ms / ~90 fps</strong> @640 on the S25 Hexagon NPU. Inference input switched to <strong>letterbox</strong> (aspect-preserving) to match training — small extra gain, esp. the ball.</li>
+      <li>Baseline <strong>v2 (2-class, 2026-07-10)</strong>: mAP50 0.881, ~18 ms. Auto-mined data was <strong>excluded</strong> from v5+ (it poisoned hole).</li>
+      <li>Main weaknesses: <strong>unseen club types are missed</strong>, plus <strong>some false positives</strong>. Trained across <strong>v1 data</strong> (early downloads, provided the hole labels) and the large <strong>v2 data</strong> collection (27 people / 350 min, split by person).</li>
     </ul>
   </div>
 
@@ -91,7 +92,32 @@
     </tbody>
   </table>
   </div>
-  <p class="note">‡ The fixed val has no <code>hole</code> labels, so hole recall is not measurable — a held-out hole val is still needed.</p>
+  <p class="note">‡ The <em>old</em> fixed val (v1 data) had no <code>hole</code> labels. Superseded — v6+ is measured on a new 3-class val (below).</p>
+
+  <h3>1b. v6+ on the new 3-class val (hole finally measurable)</h3>
+  <p class="note">Measured on <strong>golf_reviewed/val</strong> — 3,391 images / 5,639 boxes, human-reviewed, by-person split (val people: Michael, Joy, Hiro, Ramu, Aryan), <strong>with 851 hole boxes</strong>. Frozen, so v6/v7/v8 are directly comparable. Different val from the v2/v5 table above (that one is 2-class, 290 imgs) — do not cross-compare the two tables.</p>
+  <div class="scroll">
+  <table>
+    <thead>
+      <tr><th class="k">KPI (new val, imgsz 1280)</th>
+        <th>v5 baseline</th><th>v6 <small>p50 · 50% train</small></th><th>v7 <small>p85 · 85%</small></th><th>v8 <small>full · 100%</small></th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="k">Train frames (hole boxes)</td><td>—</td><td>35,814 (9,761)</td><td>61,494 (15,323)</td><td>69,024 (16,203)</td></tr>
+      <tr><td class="k">mAP50 (all)</td><td>0.880</td><td><strong>0.940</strong></td><td>TBD</td><td>TBD</td></tr>
+      <tr><td class="k">mAP50-95 (all)</td><td>—</td><td>0.844</td><td>TBD</td><td>TBD</td></tr>
+      <tr><td class="k">ball Recall</td><td>0.894</td><td>0.909</td><td>TBD</td><td>TBD</td></tr>
+      <tr><td class="k">club_head Recall</td><td>—</td><td>0.862</td><td>TBD</td><td>TBD</td></tr>
+      <tr><td class="k">hole Recall</td><td>—</td><td><strong>0.870</strong></td><td>TBD</td><td>TBD</td></tr>
+      <tr><td class="k">hole mAP50</td><td>—</td><td>0.948</td><td>TBD</td><td>TBD</td></tr>
+      <tr><td class="k">TFLite asset</td><td>golf_v5</td><td>golf_v6</td><td>golf_v7</td><td>golf_v8</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="note">v6 (50% train) already reaches mAP50 0.940 with hole recall 0.87 (+0.06 vs v5). v7/v8 add more reviewed
+    data on the same val; v8 (100%) is the deploy target — numbers filled once trained. Caveats: this val is 1fps
+    (fast-swing frames subsampled out) and detector-prelabeled+reviewed, so absolute numbers may be optimistic; the
+    relative +0.06 is solid. Full log: <code>golf/V6_RESULTS.md</code>.</p>
 
   <h3>Where the evaluation data comes from</h3>
   <p>The fixed val is carved from <strong>v1 data</strong> (the Google-Photos batch). The egocentric
@@ -99,9 +125,11 @@
     and split <strong>video-disjoint</strong> — no clip appears in both train and val — into the training
     set and a held-out <strong>290-image / 448-box</strong> val. That same val is reused for every
     version, so the KPIs above are directly comparable across v2 → v5.</p>
-  <p>Because v1 data predates the hole class, this val is <strong>ball + club only (no hole labels)</strong>
-    — which is why <code>hole</code> recall can't be scored here. A dedicated hole val is being carved from
-    <strong>v2 data</strong> (its val/test people, all with putting footage) to close that gap.</p>
+  <p>The old v1-data val is ball+club only (no hole), which is why v2–v5 have no hole score. <strong>For v6+ this
+    gap is closed:</strong> a proper <strong>3-class val was carved from v2 data</strong> — 3,391 human-reviewed
+    frames from the val-split people (all with putting footage), <strong>851 hole boxes</strong>. Hole recall is
+    now measured (0.87 at v6). This new val backs the v6+ table (§1b); it is a different, larger, 3-class val, so it
+    is not cross-comparable with the v2/v5 numbers.</p>
 
   <h2>2. Overview</h2>
   <p>The <strong>Golf Detector</strong> is the per-frame object detector behind the egocentric
@@ -125,10 +153,12 @@
     can't run on the NPU; threshold + per-class NMS then run in Kotlin.</p>
 
   <h2>5. Training data</h2>
-  <p>The models are trained across <strong>two data generations</strong>. <strong>v1 data</strong> — the
-    earlier downloaded videos — trained the first models. <strong>v2 data</strong> — a large-scale
-    in-house egocentric collection — is the current corpus; <strong>v5's human-reviewed training frames
-    were sampled from it</strong>, and it is split for upcoming training and a proper hole val.</p>
+  <p>The models are trained across <strong>two data generations</strong>. <strong>v1 data</strong> — the earlier
+    downloaded videos — trained the first models and provided the <strong>hole labels</strong>
+    (<code>golf_hole_reviewed</code>, 842 frames). <strong>v2 data</strong> — a large-scale in-house egocentric
+    collection — is the current corpus; the whole thing was <strong>human-reviewed in Label Studio</strong> and
+    split by person into train / val / test. <strong>v6→v8 were trained on this reviewed set</strong> at 50% / 85% /
+    100% labeling (train 35,814 → 61,494 → 69,024 frames), all evaluated on the frozen 3-class val.</p>
 
   <h3>Data collections</h3>
   <div class="scroll">
@@ -144,7 +174,7 @@
       <tr><td class="k">Size</td><td>19.4 GB</td><td class="tbd">(TBD)</td></tr>
       <tr><td class="k">Collected</td><td>2025-07-02 → 07-05</td><td>—</td></tr>
       <tr><td class="k">Modalities</td><td>video</td><td>video + audio + IMU</td></tr>
-      <tr><td class="k">Trained</td><td>golf_ego v1, v2 (2-class ego models)</td><td>v5 reviewed frames sampled here; v6+ upcoming</td></tr>
+      <tr><td class="k">Trained</td><td>golf_ego v1, v2 (2-class); hole labels (golf_hole_reviewed)</td><td>v5 reviewed frames sampled here; v6–v8 = full reviewed set</td></tr>
     </tbody>
   </table>
   </div>
@@ -167,9 +197,10 @@
 
   <h2>6. Deployment</h2>
   <p>Shipped as a <strong>float16 raw-head TFLite</strong> model in the <code>android-golf</code> app,
-    on the <strong>Qualcomm Hexagon NPU</strong> (QNN delegate). On a Samsung Galaxy S25, v5 runs at
+    on the <strong>Qualcomm Hexagon NPU</strong> (QNN delegate). On a Samsung Galaxy S25, it runs at
     <strong>~11 ms / frame (~90 fps) @640</strong>; first-launch graph compile ~1.4 s. The app auto-loads
-    the highest <code>golf_v&lt;N&gt;.tflite</code> in assets and shows the version in the HUD.</p>
+    the highest <code>golf_v&lt;N&gt;.tflite</code> in assets and shows the version in the HUD. The detector
+    input is <strong>letterboxed</strong> (aspect-preserving, matching training) rather than stretched.</p>
 
   <h2>7. Version history</h2>
   <ul>
@@ -178,6 +209,14 @@
       frames, which <strong>degraded hole</strong> → dropped.</li>
     <li><strong>v5 — 2026-07-22</strong> · 3-class. Fine-tuned from the v3 hole model on human-reviewed
       frames (sampled from v2 data), auto-mined excluded. No regression: ball recall +0.01, mAP steady.</li>
+    <li><strong>v6 — 2026-07-29</strong> (<code>golf_v6.tflite</code>) · fine-tuned from v5 on the fully
+      human-reviewed set at <strong>50% labeling</strong> + the v1-data hole set (<code>golf_hole_reviewed</code>).
+      First measured on the new 3-class val: <strong>mAP50 0.940, hole recall 0.870, ball recall 0.909</strong>
+      (+0.06 mAP50 vs v5). Inference switched to letterbox.</li>
+    <li><strong>v7 — 2026-07-30</strong> (<code>golf_v7.tflite</code>) · same recipe at <strong>85% labeling</strong>
+      (train 61,494 frames / 15,323 hole boxes).</li>
+    <li><strong>v8 — 2026-08 (deploy target)</strong> (<code>golf_v8.tflite</code>) · <strong>100% labeling</strong>
+      (train 69,024 / 16,203 hole boxes). Base is still v5 (full train supersets v6/v7 → clean single-shot, no chained drift).</li>
   </ul>
 
   <h2>8. Known limitations</h2>
@@ -186,7 +225,8 @@
       shapes / clubs it hasn't seen in training; those go undetected. (This is the main gap.)</li>
     <li><strong>Some false positives</strong> — occasional spurious boxes on club/ball-like objects.</li>
     <li><strong>Ball detection is reliable</strong>, including small / distant balls — not a concern.</li>
-    <li><strong>Hole recall is unmeasured</strong> — the fixed val has no hole labels; a held-out hole val is required.</li>
+    <li><strong>Hole recall now measured</strong> — 0.87 on the new 3-class val (was un-measurable). Note the val is
+      1fps (fast-swing frames subsampled out) + detector-prelabeled, so real-world hole recall may be a touch lower.</li>
     <li><strong>Ball in flight is un-trackable</strong> (motion blur); impact timing is audio-anchored, not vision.</li>
   </ul>
 
