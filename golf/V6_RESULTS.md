@@ -14,9 +14,14 @@ By-person split (val people: Michael, Joy, Hiro, Ramu, Aryan). Same val across p
 | model | train frames (hole boxes) | mAP50 | mAP50-95 | ball R | club_head R | hole R |
 |---|---|---|---|---|---|---|
 | **v5** (baseline) | — | 0.880 | — | 0.894 | — | — |
-| **v6_p50** (2026-07-29) — 50% train → `golf_v6.tflite` | 35,814 (9,761) | **0.940** | 0.844 | 0.909 | 0.862 | **0.868** |
-| **v6_p85** (2026-07-30) — 85% train → `golf_v7.tflite` | 61,494 (15,323) | _TBD_ | | | | |
-| **v8 / full** (2026-08-04) — 100% train → `golf_v8.tflite` | 69,024 (16,203) | _TBD_ | | | | |
+| **v6_p50** (2026-07-29) — 50% train → `golf_v6.tflite` | 35,814 (9,761) | 0.940 | 0.844 | 0.909 | 0.862 | 0.868 |
+| **v6_p85** (2026-07-30) — 85% train → `golf_v7.tflite` | 61,494 (15,323) | _(not eval'd — went to v8)_ | | | | |
+| **v8 / full** (2026-08-04) — 100% train → `golf_v8.tflite` | 69,024 (16,203) | **0.967** | **0.868** | **0.947** | **0.919** | **0.921** |
+
+Per-class @ v8: ball P0.923 R0.947 mAP50 0.976 · club_head P0.922 R0.919 mAP50 0.957 · hole P0.959 R0.921 mAP50 0.966.
+**Δ v8 vs v5:** mAP50 **+0.086**, ball recall **+0.053**. **Δ v8 vs v6_p50** (more data): mAP50 +0.027, ball R +0.038,
+club R +0.057, hole R +0.051 — every recall jumped 4–6 pts from 50%→100% train, so labeling the full set clearly paid off.
+v8 = the deploy model (`golf_v8.tflite`). It trained 25 epochs before early-stop (vs p50's ep1 — full data gave it more to learn).
 
 Per-class @ v6_p50: ball P0.903 R0.909 mAP50 0.950 · club_head P0.887 R0.863 mAP50 0.923 · hole P0.960 R0.870 mAP50 0.948.
 **Δ p50 vs v5:** mAP50 **+0.060**, ball recall **+0.015**. First real `hole` recall = **0.87** (was un-measurable before — no hole val).

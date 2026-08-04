@@ -49,13 +49,13 @@
 <div class="wrap">
   <h1>Golf Detector — Model Release</h1>
   <p class="lede">On-device ball / club-head / hole detector for the egocentric golf CV system.</p>
-  <p class="meta">Family: golf_ego · Backbone: YOLO26s · Latest: v6–v8 (2026-08, full-data, 3-class hole val) · Baseline: v2 (2026-07-10)</p>
+  <p class="meta">Family: golf_ego · Backbone: YOLO26s · Latest: v8 (2026-08, full-data, mAP50 0.967 / hole recall 0.921) · Baseline: v2 (2026-07-10)</p>
 
   <div class="tldr">
     <h2>TL;DR</h2>
     <ul>
       <li>Per-frame <strong>YOLO26s</strong> detector for <strong>ball / club_head / hole</strong>, running on the phone's Hexagon NPU.</li>
-      <li><strong>v6+ (2026-08)</strong>: fine-tuned from v5 on a fully human-reviewed egocentric set (Label Studio, 27 people, by-person split) with a proper <strong>3-class val</strong>. <strong>Hole is now measurable — recall 0.87</strong> (was un-measurable before). On the new val: <strong>mAP50 0.940, ball recall 0.909, hole recall 0.870</strong> (+0.06 mAP50 vs the v5 baseline).</li>
+      <li><strong>v8 (2026-08, deploy target)</strong>: fine-tuned from v5 on the <strong>fully human-reviewed</strong> egocentric set (Label Studio, 27 people, by-person split, 69k train frames) with a proper <strong>3-class val</strong>. On the new val: <strong>mAP50 0.967, ball recall 0.947, club recall 0.919, hole recall 0.921</strong> — +0.086 mAP50 / +0.053 ball recall vs v5. Hole is now measurable and strong (was un-measurable before). More data helped a lot: every recall +4–6 pts from the 50%-train v6.</li>
       <li>Runs <strong>~11 ms / ~90 fps</strong> @640 on the S25 Hexagon NPU. Inference input switched to <strong>letterbox</strong> (aspect-preserving) to match training — small extra gain, esp. the ball.</li>
       <li>Baseline <strong>v2 (2-class, 2026-07-10)</strong>: mAP50 0.881, ~18 ms. Auto-mined data was <strong>excluded</strong> from v5+ (it poisoned hole).</li>
       <li>Main weaknesses: <strong>unseen club types are missed</strong>, plus <strong>some false positives</strong>. Trained across <strong>v1 data</strong> (early downloads, provided the hole labels) and the large <strong>v2 data</strong> collection (27 people / 350 min, split by person).</li>
@@ -104,18 +104,19 @@
     </thead>
     <tbody>
       <tr><td class="k">Train frames (hole boxes)</td><td>—</td><td>35,814 (9,761)</td><td>61,494 (15,323)</td><td>69,024 (16,203)</td></tr>
-      <tr><td class="k">mAP50 (all)</td><td>0.880</td><td><strong>0.940</strong></td><td>TBD</td><td>TBD</td></tr>
-      <tr><td class="k">mAP50-95 (all)</td><td>—</td><td>0.844</td><td>TBD</td><td>TBD</td></tr>
-      <tr><td class="k">ball Recall</td><td>0.894</td><td>0.909</td><td>TBD</td><td>TBD</td></tr>
-      <tr><td class="k">club_head Recall</td><td>—</td><td>0.862</td><td>TBD</td><td>TBD</td></tr>
-      <tr><td class="k">hole Recall</td><td>—</td><td><strong>0.870</strong></td><td>TBD</td><td>TBD</td></tr>
-      <tr><td class="k">hole mAP50</td><td>—</td><td>0.948</td><td>TBD</td><td>TBD</td></tr>
-      <tr><td class="k">TFLite asset</td><td>golf_v5</td><td>golf_v6</td><td>golf_v7</td><td>golf_v8</td></tr>
+      <tr><td class="k">mAP50 (all)</td><td>0.880</td><td>0.940</td><td>—</td><td><strong>0.967</strong></td></tr>
+      <tr><td class="k">mAP50-95 (all)</td><td>—</td><td>0.844</td><td>—</td><td><strong>0.868</strong></td></tr>
+      <tr><td class="k">ball Recall</td><td>0.894</td><td>0.909</td><td>—</td><td><strong>0.947</strong></td></tr>
+      <tr><td class="k">club_head Recall</td><td>—</td><td>0.862</td><td>—</td><td><strong>0.919</strong></td></tr>
+      <tr><td class="k">hole Recall</td><td>—</td><td>0.870</td><td>—</td><td><strong>0.921</strong></td></tr>
+      <tr><td class="k">hole mAP50</td><td>—</td><td>0.948</td><td>—</td><td><strong>0.966</strong></td></tr>
+      <tr><td class="k">TFLite asset</td><td>golf_v5</td><td>golf_v6</td><td>golf_v7</td><td><strong>golf_v8 (deploy)</strong></td></tr>
     </tbody>
   </table>
   </div>
-  <p class="note">v6 (50% train) already reaches mAP50 0.940 with hole recall 0.87 (+0.06 vs v5). v7/v8 add more reviewed
-    data on the same val; v8 (100%) is the deploy target — numbers filled once trained. Caveats: this val is 1fps
+  <p class="note">v6 (50% train) reached mAP50 0.940 / hole recall 0.87; <strong>v8 (100% train) is the deploy model at
+    mAP50 0.967 / hole recall 0.921</strong> — every recall gained 4–6 pts from more data. v7 (85%) wasn't separately
+    evaluated. Caveats: this val is 1fps
     (fast-swing frames subsampled out) and detector-prelabeled+reviewed, so absolute numbers may be optimistic; the
     relative +0.06 is solid. Full log: <code>golf/V6_RESULTS.md</code>.</p>
 
@@ -215,8 +216,9 @@
       (+0.06 mAP50 vs v5). Inference switched to letterbox.</li>
     <li><strong>v7 — 2026-07-30</strong> (<code>golf_v7.tflite</code>) · same recipe at <strong>85% labeling</strong>
       (train 61,494 frames / 15,323 hole boxes).</li>
-    <li><strong>v8 — 2026-08 (deploy target)</strong> (<code>golf_v8.tflite</code>) · <strong>100% labeling</strong>
-      (train 69,024 / 16,203 hole boxes). Base is still v5 (full train supersets v6/v7 → clean single-shot, no chained drift).</li>
+    <li><strong>v8 — 2026-08-04 (deploy)</strong> (<code>golf_v8.tflite</code>) · <strong>100% labeling</strong>
+      (train 69,024 / 16,203 hole boxes), base v5. <strong>mAP50 0.967, ball R 0.947, club R 0.919, hole R 0.921</strong>
+      — the best model; every recall +4–6 pts over the 50%-train v6, confirming the full labeling pass paid off.</li>
   </ul>
 
   <h2>8. Known limitations</h2>
